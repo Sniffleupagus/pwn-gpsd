@@ -240,7 +240,21 @@ class PlotGPS(plugins.Plugin):
     # called when a new handshake is captured, access_point and client_station are json objects
     # if the agent could match the BSSIDs to the current list, otherwise they are just the strings of the BSSIDs
     def on_handshake(self, agent, filename, access_point, client_station):
-        pass
+        if self.running:
+            try:
+                if os.path.isfile("/etc/pwnagotchi/pwn_gpsd/current.txt"):
+                    logging.info("Loading current loc")
+                    with open("/etc/pwnagotchi/pwn_gpsd/current.txt", 'r') as f:
+                        tpv = json.load(f)
+                        if 'lat' in tpv:
+                            gps_filename = filename.replace(".pcap", ".gps.json")
+                            logging.info(f"saving GPS to {gps_filename} ({tpv})")
+                            with open(gps_filename, "w+t") as fp:
+                                json.dump(tpv, fp)
+                else:
+                    logging.info("not saving GPS. Couldn't find location.")
+            except Exception as err:
+                logging.warning("[gps_more handshake] %s" % repr(err))
 
     # called when an epoch is over (where an epoch is a single loop of the main algorithm)
     def on_epoch(self, agent, epoch, epoch_data):
