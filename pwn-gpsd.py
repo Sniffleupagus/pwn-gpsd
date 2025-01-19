@@ -805,10 +805,10 @@ if __name__ == "__main__":
                                 messages_archive[m_class] = raw
                         else:
                             logging.info("gpsd returns nothing.  restarting")
-                            sys.exit()
+                            sys.exit(3)
                     except Exception as e:
                         logging.exception(e)
-                        sys.exit()
+                        sys.exit(4)
                 else:
                     # process input from client
                     try:
@@ -876,7 +876,7 @@ if __name__ == "__main__":
                                 queue_message_for(gpsd_socket, raw)
                     except (ConnectionResetError, ConnectionAbortedError):
                         print("Connection closed by server")
-                        sys.exit()
+                        sys.exit(5)
                     except Exception as e:
                         logging.exception("Closing client %s: %s" % (s,e))
                         if s in client_sockets:
@@ -917,13 +917,13 @@ if __name__ == "__main__":
                     if s == gpsd_socket:
                         logging.info("gpsd socket error: exiting")
                         s.close()
-                        sys.exit()
+                        sys.exit(6)
                 except Exception as e:
                     logging.exception(e)
-                    sys.exit()
+                    sys.exit(7)
         except (ConnectionResetError, ConnectionAbortedError):
             print("Connection closed by server")
-            sys.exit()
+            sys.exit(8)
         except Exception as e:
             logging.exception(e)
 
