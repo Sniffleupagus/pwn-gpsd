@@ -704,7 +704,7 @@ if __name__ == "__main__":
                                     if client_sockets[cl].watch.get('enable', False):
                                         queue_message_for(cl, raw)
                             elif m_class == 'DEVICES':
-                                print("GPSD> DEVICES %s"  % (data['devices']))
+                                print("GPSD> DEVICES %s" % (data['devices']))
                             elif m_class == 'TPV': # position update
                                 last_tpv = json.loads(messages_archive.get("LAST_SENT_" + m_class, "{}"))
                                 last_tpv["time"] = data.get("time", "")
@@ -721,11 +721,6 @@ if __name__ == "__main__":
                                     logging.debug("PWNgpsd (%d)> %s" % ( time.time() - last_tpv_send, raw.strip()))
 
                                     propagate = False # do not pass along unless something changed
-                                    if (time.time()-last_tpv_send > 30):
-                                        # minimum update interval
-                                        logging.info("Triggering minimum update rate")
-                                        propagate = True
-
                                     if mode > 1:
                                         # have some position
                                         for k,v in {'lat':"%0.4f", 'lon':"%0.4f"}.items():
@@ -754,6 +749,15 @@ if __name__ == "__main__":
                                                             f.write(raw)
                                                     except Exception as e:
                                                         logging.exception("Saving current location: %s" % e)
+
+                                    if not propagate and (time.time()-last_tpv_send > 60):
+                                        # minimum update interval
+                                        logging.info("Min time update %s (%0.4f) %0.4f, %0.4f, %0.2f" % (k,
+                                                                                                    last_tpv.get(k, 0),
+                                                                                                    data.get('lat', 0),
+                                                                                                    data.get('lon', 0),
+                                                                                                    data.get('alt', 0)))
+                                        propagate = True
 
                                     if propagate:
                                         last_tpv_send = time.time()
