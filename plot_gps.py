@@ -25,7 +25,7 @@ class gpsImage(Widget):
         self.bounds = None
 
         if not self.font:
-            self.font = ImageFont.truetype("Pillow/Tests/fonts/FreeMono.ttf", 12)
+            self.font = ImageFont.truetype("DejaVuSansMono", 12)
         
     def generate_key(self, password="Friendship"):
         """Generate a Fernet key from a password"""
