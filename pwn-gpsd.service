@@ -10,7 +10,7 @@ Type=simple
 WorkingDirectory=~
 # change this to point to the correct venv python
 # on jayofelony, change ".venv" to ".pwn"
-ExecStart=/home/pwnagotchi/.venv/bin/python3 pwn-gpsd.py -S
+ExecStart=/home/pwnagotchi/.venv/bin/python3 /usr/local/bin/pwn-gpsd.py -S
 Restart=always
 Restart=on-failure
 RestartSec=10

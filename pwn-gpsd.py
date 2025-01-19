@@ -39,7 +39,7 @@ from pwnagotchi import grid as pwngrid
 #          weight = this_ap[rssi] - worst_rssi          # smaller negative minus big negative = positive
 # [ ] 
 
-class PWN_GPSD:
+class PWN_GPSD_Proxy:
     def __init__(self, host, port, watch=False, password="Friendship"):
         try:
             self.host = host
@@ -555,7 +555,7 @@ if __name__ == "__main__":
             quiet = True
 
     (host, sport) = server.split(":",1)
-    gpsd = PWN_GPSD(host, int(sport), watch=True, password=sharingPassword)
+    gpsd = PWN_GPSD_Proxy(host, int(sport), watch=True, password=sharingPassword)
     gpsd_socket = gpsd.socket
 
     # create proxy socket
@@ -627,11 +627,12 @@ if __name__ == "__main__":
                 logging.exception(e)
         try:
             write_list = messages_for.keys()
+            err_list = read_list.copy()
             if len(write_list):
                 logging.info("Write list (%d): %s" % (len(write_list), repr(write_list)))
             if len(read_list):
                 logging.debug("Read list (%d): %s" % (len(read_list), repr(read_list)))
-            readable, writable, errored = select.select(read_list, write_list, [], 1.0)
+            readable, writable, errored = select.select(read_list, write_list, err_list, 1.0)
             logging.debug("Readable: %s" % repr(readable))
             # look up location from pwngrid peers
             if useSharedLoc and time.time() - last_share_check > 30:
@@ -748,7 +749,7 @@ if __name__ == "__main__":
                                                         now = datetime.now()
                                                         fname = now.strftime("/etc/pwnagotchi/pwn_gpsd/pwntrack_%Y%m%d.txt")
                                                         if not os.isdir(os.dirname(fname)):
-                                                            os.mkdir(os.dirname(fname)))
+                                                            os.mkdir(os.dirname(fname))
                                                         with open("/etc/pwnagotchi/pwn_gpsd_current_track.txt", "a+") as f:
                                                             f.write(raw)
                                                     except Exception as e:
@@ -802,8 +803,12 @@ if __name__ == "__main__":
                                     messages_archive[m_class] = raw
                             else:
                                 messages_archive[m_class] = raw
+                        else:
+                            logging.info("gpsd returns nothing.  restarting")
+                            sys.exit()
                     except Exception as e:
                         logging.exception(e)
+                        sys.exit()
                 else:
                     # process input from client
                     try:
@@ -869,6 +874,9 @@ if __name__ == "__main__":
                             else:
                                 logging.info("CMD %s: %s" % (cmd, data))
                                 queue_message_for(gpsd_socket, raw)
+                    except (ConnectionResetError, ConnectionAbortedError):
+                        print("Connection closed by server")
+                        sys.exit()
                     except Exception as e:
                         logging.exception("Closing client %s: %s" % (s,e))
                         if s in client_sockets:
@@ -904,6 +912,18 @@ if __name__ == "__main__":
                     read_list.remove(s)
                     s.close()
 
+            for s in errored:
+                try:
+                    if s == gpsd_socket:
+                        logging.info("gpsd socket error: exiting")
+                        s.close()
+                        sys.exit()
+                except Exception as e:
+                    logging.exception(e)
+                    sys.exit()
+        except (ConnectionResetError, ConnectionAbortedError):
+            print("Connection closed by server")
+            sys.exit()
         except Exception as e:
             logging.exception(e)
 
