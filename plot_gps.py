@@ -16,30 +16,35 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 class gpsImage(Widget):
-    def __init__(self, position=(219,120,319,220), color='White', *, font=None):
+    def __init__(self, position=(219,120,319,220), color='White', *, font=None, password="Friendship"):
         super().__init__(position, color)
         self.xy = position
         self.color = color
         self.font = font
         self.points = {}
         self.bounds = None
+        self.password = password
 
         if not self.font:
             self.font = ImageFont.truetype("DejaVuSansMono", 12)
         
-    def generate_key(self, password="Friendship"):
+    def generate_key(self, password=None):
         """Generate a Fernet key from a password"""
-        if password:
-            ekey = hashlib.sha256(password.encode()).digest()
-            return base64.urlsafe_b64encode(ekey)
-        else:
-            return None
+        if not password:
+            password = self.password
+        ekey = hashlib.sha256(password.encode()).digest()
+        return base64.urlsafe_b64encode(ekey)
 
     def decrypt_data(self, encrypted_message, default=None):
         """Decrypts a message with a password."""
         if encrypted_message:
             f = Fernet(self.generate_key())
-            decrypted_message = f.decrypt(encrypted_message.encode()).decode()
+            try:
+                decrypted_message = f.decrypt(encrypted_message.encode()).decode()
+            except Exception as e:
+                f = Fernet(self.generate_key(password="Friendship"))
+                decrypted_message = f.decrypt(encrypted_message.encode()).decode()
+                
             try:
                 return json.loads(decrypted_message)
             except Exception as e:
@@ -162,6 +167,7 @@ class PlotGPS(plugins.Plugin):
     def __init__(self):
         self.agent = None
         logging.info("plot_gps plugin created")
+        self.password = None
 
     # called when http://<host>:<port>/plugins/<plugin>/ is called
     # must return a html page
@@ -171,6 +177,7 @@ class PlotGPS(plugins.Plugin):
 
     # called when the plugin is loaded
     def on_loaded(self):
+        self.password = self.options.get('password', 'Friendship')
         pass
 
     # called before the plugin is unloaded
@@ -188,7 +195,7 @@ class PlotGPS(plugins.Plugin):
     def on_ui_setup(self, ui):
         # add custom UI elements
         self._ui = ui
-        self.gpsImage = gpsImage()
+        self.gpsImage = gpsImage(password=self.password)
         
         ui.add_element('peer_gps', self.gpsImage) 
 
