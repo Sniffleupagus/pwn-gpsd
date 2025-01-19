@@ -742,15 +742,15 @@ if __name__ == "__main__":
                                                                                                                    data.get('alt', 0)))
                                                     propagate = True
                                                     try:
-                                                        if not os.isdir("/etc/pwnagotchi/pwn_gpsd"):
+                                                        if not os.path.isdir("/etc/pwnagotchi/pwn_gpsd"):
                                                             os.mkdir("/etc/pwnagotchi/pwn_gpsd")
                                                         with open("/etc/pwnagotchi/pwn_gpsd/current.txt", "w") as f:
                                                             f.write(raw)
                                                         now = datetime.now()
                                                         fname = now.strftime("/etc/pwnagotchi/pwn_gpsd/pwntrack_%Y%m%d.txt")
-                                                        if not os.isdir(os.dirname(fname)):
-                                                            os.mkdir(os.dirname(fname))
-                                                        with open("/etc/pwnagotchi/pwn_gpsd_current_track.txt", "a+") as f:
+                                                        if not os.path.isdir(os.path.dirname(fname)):
+                                                            os.mkdir(os.path.dirname(fname))
+                                                        with open(fname, "a+") as f:
                                                             f.write(raw)
                                                     except Exception as e:
                                                         logging.exception("Saving current location: %s" % e)
