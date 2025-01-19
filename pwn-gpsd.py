@@ -704,7 +704,7 @@ if __name__ == "__main__":
                                     if client_sockets[cl].watch.get('enable', False):
                                         queue_message_for(cl, raw)
                             elif m_class == 'DEVICES':
-                                print("GPSD> DEVICES %s %s" % (data['devices'][0]['path'], data['devices'][0]['driver']))
+                                print("GPSD> DEVICES %s"  % (data['devices']))
                             elif m_class == 'TPV': # position update
                                 last_tpv = json.loads(messages_archive.get("LAST_SENT_" + m_class, "{}"))
                                 last_tpv["time"] = data.get("time", "")
