@@ -6,6 +6,7 @@ from pwnagotchi.ui.view import BLACK
 import pwnagotchi.ui.fonts as fonts
 from pwnagotchi.mesh.peer import Peer
 
+import numpy
 import random
 import os
 import json
@@ -24,6 +25,7 @@ class gpsImage(Widget):
         self.points = {}
         self.bounds = None
         self.password = password
+        self.mylocation = {}
 
         if not self.font:
             self.font = ImageFont.truetype("DejaVuSansMono", 12)
@@ -63,10 +65,11 @@ class gpsImage(Widget):
         # get my location
         try:
             if os.path.isfile("/etc/pwnagotchi/pwn_gpsd/current.txt"):
-                logging.info("Loading current loc")
                 with open("/etc/pwnagotchi/pwn_gpsd/current.txt", 'r') as f:
                     tpv = json.load(f)
+                    self.mylocation = tpv
                     if 'lat' in tpv:
+                        logging.info("Me: %s, %s" % (tpv.get('lat'), tpv.get('lon')))
                         points["me"] = tpv
                         minx = tpv.get('lat')
                         maxx = tpv.get('lat')
@@ -168,6 +171,7 @@ class PlotGPS(plugins.Plugin):
         self.agent = None
         logging.info("plot_gps plugin created")
         self.password = None
+        self.ui_elements = []
 
     # called when http://<host>:<port>/plugins/<plugin>/ is called
     # must return a html page
@@ -182,10 +186,11 @@ class PlotGPS(plugins.Plugin):
 
     # called before the plugin is unloaded
     def on_unload(self, ui):
-        try:
-            ui.remove_element('peer_gps')
-        except Exception as e:
-            logging.exception(e)
+        for el in self.ui_elements:
+            try:
+                ui.remove_element(el)
+            except Exception as e:
+                logging.exception(e)
 
     # called when there's internet connectivity
     def on_internet_available(self, agent):
@@ -197,7 +202,22 @@ class PlotGPS(plugins.Plugin):
         self._ui = ui
         self.gpsImage = gpsImage(password=self.password)
         
-        ui.add_element('peer_gps', self.gpsImage) 
+        ui.add_element('plot_gps', self.gpsImage)
+        self.ui_elements.append('plot_gps')
+        self.fields = self.options.get('fields', ['fix','lat','lon','alt','speed'])
+        base_pos = self.options.get('pos', [0,55])
+        for f in self.fields:
+            fname = "plot_gps_" + f
+            pos = (base_pos[0], base_pos[1])
+            label = f
+            if f == 'fix':
+                label = ">O<"
+            ui.add_element(fname, LabeledValue(color="black", label=label, value='---.----',
+                                               position=pos,
+                                               label_font=fonts.BoldSmall, text_font=fonts.Small),
+                           )
+            self.ui_elements.append(fname)
+            base_pos[1] += 10
 
     # called when the ui is updated
     def on_ui_update(self, ui):
@@ -206,6 +226,37 @@ class PlotGPS(plugins.Plugin):
             return
         try:
             self.gpsImage.processPeers(self.agent._peers)
+
+            if self.gpsImage.mylocation:
+                self.fields = self.options.get('fields', ['fix','lat','lon','alt','spd'])
+                loc = self.gpsImage.mylocation
+                mode = loc.get('mode', 0)
+                if mode == 0:
+                    fix = '-'
+                elif mode == 1:
+                    fix = 'T'
+                else:
+                    fix = "%sD" % mode
+                ui.set("plot_gps_fix", fix)
+
+                for f in ['lat', 'lon']:
+                    fname = "plot_gps_%s" % f
+                    fval = loc.get(f, None)
+                    if fval:
+                        ui.set(fname, "%9.4f" % fval)
+
+                alt = loc.get('alt', None)
+                if alt:
+                    ui.set('plot_gps_alt', "%6.2f" % alt)
+
+                speed = loc.get('speed', None)
+                if speed:
+                    speed = speed * 2.237  # miles per hour. use 3.6 for kph
+                    ui.set('plot_gps_speed', "%6.2f" % speed)
+                else:
+                    ui.set('plot_gps_speed', "---")
+            else:
+                logging.info("No location yet: %s" % repr(self.gpsImage.mylocation))
         except Exception as e:
             logging.exception(e)
 
@@ -249,15 +300,17 @@ class PlotGPS(plugins.Plugin):
     def on_handshake(self, agent, filename, access_point, client_station):
         if self.running:
             try:
-                if os.path.isfile("/etc/pwnagotchi/pwn_gpsd/current.txt"):
-                    logging.info("Loading current loc")
-                    with open("/etc/pwnagotchi/pwn_gpsd/current.txt", 'r') as f:
-                        tpv = json.load(f)
-                        if 'lat' in tpv:
-                            gps_filename = filename.replace(".pcap", ".gps.json")
-                            logging.info(f"saving GPS to {gps_filename} ({tpv})")
-                            with open(gps_filename, "w+t") as fp:
-                                json.dump(tpv, fp)
+                if self.gpsImage.mylocation:
+                    tpv = self.gpsImage.mylocation
+                else:
+                    if os.path.isfile("/etc/pwnagotchi/pwn_gpsd/current.txt"):
+                        with open("/etc/pwnagotchi/pwn_gpsd/current.txt", 'r') as f:
+                            tpv = json.load(f)
+                if 'lat' in tpv:
+                    gps_filename = filename.replace(".pcap", ".gps.json")
+                    logging.info(f"saving GPS to {gps_filename} ({tpv})")
+                    with open(gps_filename, "w+t") as fp:
+                        json.dump(tpv, fp)
                 else:
                     logging.info("not saving GPS. Couldn't find location.")
             except Exception as err:
