@@ -69,7 +69,7 @@ class gpsImage(Widget):
                     tpv = json.load(f)
                     self.mylocation = tpv
                     if 'lat' in tpv:
-                        logging.info("Me: %s, %s" % (tpv.get('lat'), tpv.get('lon')))
+                        logging.debug("Me: %s, %s" % (tpv.get('lat'), tpv.get('lon')))
                         points["me"] = tpv
                         minx = tpv.get('lat')
                         maxx = tpv.get('lat')
@@ -89,7 +89,7 @@ class gpsImage(Widget):
                 tpv = json.loads(self.decrypt_data(adv.get('snorlax', {})))
                 logging.debug("%s: %s" % (p.name(), tpv))
                 if 'lat' in tpv:
-                    logging.info("%s -> %s, %s" % (p.name(), tpv.get('lat', random.randint(0,100)), tpv.get('lon', random.randint(0,100))))
+                    logging.debug("%s -> %s, %s" % (p.name(), tpv.get('lat', random.randint(0,100)), tpv.get('lon', random.randint(0,100))))
                     points[p.name()] = tpv
                     x = tpv.get('lat', minx)
                     y = tpv.get('lon', miny)
@@ -298,7 +298,7 @@ class PlotGPS(plugins.Plugin):
     # called when a new handshake is captured, access_point and client_station are json objects
     # if the agent could match the BSSIDs to the current list, otherwise they are just the strings of the BSSIDs
     def on_handshake(self, agent, filename, access_point, client_station):
-        if self.running:
+        if True:
             try:
                 if self.gpsImage.mylocation:
                     tpv = self.gpsImage.mylocation
@@ -314,7 +314,7 @@ class PlotGPS(plugins.Plugin):
                 else:
                     logging.info("not saving GPS. Couldn't find location.")
             except Exception as err:
-                logging.warning("[gps_more handshake] %s" % repr(err))
+                logging.exception("[pwn-gpsd handshake] %s" % repr(err))
 
     # called when an epoch is over (where an epoch is a single loop of the main algorithm)
     def on_epoch(self, agent, epoch, epoch_data):
