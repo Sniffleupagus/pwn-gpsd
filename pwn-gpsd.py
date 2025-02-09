@@ -730,25 +730,27 @@ if __name__ == "__main__":
                                             if not propagate and (new != old):
                                                 # enough to change the needle and minimal time
                                                 if (time.time()-last_tpv_send > 10):
+                                                    # only log every 10 seconds
                                                     logging.info("Update for %s (%0.4f) %0.4f, %0.4f, %0.2f" % (k,
                                                                                                                    last_tpv.get(k, 0),
                                                                                                                    data.get('lat', 0),
                                                                                                                    data.get('lon', 0),
                                                                                                                    data.get('alt', 0)))
-                                                    propagate = True
-                                                    try:
-                                                        if not os.path.isdir("/etc/pwnagotchi/pwn_gpsd"):
-                                                            os.mkdir("/etc/pwnagotchi/pwn_gpsd")
-                                                        with open("/etc/pwnagotchi/pwn_gpsd/current.txt", "w") as f:
-                                                            f.write(raw)
-                                                        now = datetime.now()
-                                                        fname = now.strftime("/etc/pwnagotchi/pwn_gpsd/pwntrack_%Y%m%d.txt")
-                                                        if not os.path.isdir(os.path.dirname(fname)):
-                                                            os.mkdir(os.path.dirname(fname))
-                                                        with open(fname, "a+") as f:
-                                                            f.write(raw.strip() + ",\n")
-                                                    except Exception as e:
-                                                        logging.exception("Saving current location: %s" % e)
+                                                # propagate changes
+                                                propagate = True
+                                                try:
+                                                    if not os.path.isdir("/etc/pwnagotchi/pwn_gpsd"):
+                                                        os.mkdir("/etc/pwnagotchi/pwn_gpsd")
+                                                    with open("/etc/pwnagotchi/pwn_gpsd/current.txt", "w") as f:
+                                                        f.write(raw)
+                                                    now = datetime.now()
+                                                    fname = now.strftime("/etc/pwnagotchi/pwn_gpsd/pwntrack_%Y%m%d.txt")
+                                                    if not os.path.isdir(os.path.dirname(fname)):
+                                                        os.mkdir(os.path.dirname(fname))
+                                                    with open(fname, "a+") as f:
+                                                        f.write(raw.strip() + ",\n")
+                                                except Exception as e:
+                                                    logging.exception("Saving current location: %s" % e)
 
                                     if not propagate and (time.time()-last_tpv_send > 60):
                                         # minimum update interval

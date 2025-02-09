@@ -10,6 +10,7 @@ import numpy
 import random
 import os
 from datetime import datetime
+from datetime import timedelta
 import time
 import json
 import hashlib
@@ -20,34 +21,38 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 class gpsImage(Widget):
-    def __init__(self, position=(219,120,319,220), color='White', *, font=None, password="Friendship", track=[]):
+    def __init__(self, position=(219,120,319,220), color='White', *, font=None, password="Friendship", tracks=[]):
         super().__init__(position, color)
         self.xy = position
         self.canvas = None
+        self.image = None
         self.color = color
         self.font = font
         self.points = {}
         self.bounds = None
         self.password = password
         self.mylocation = {}
-        self.track = track
+        self.tracks = tracks
+        self.trackColors = ["#00ff00", "#00ff80", "#00c0c0", "#40c0c0", "#c0ffee", "#c080c0"]
         self.track_lims = [200,200,-200,-200]
         self.fullscreen = None
 
-        if len(track):
-            for step in self.track:
-                lat = step.get('lat')
-                lon = step.get('lon')
-                if lat < self.track_lims[1]:
-                    self.track_lims[1] = lat
-                if lat > self.track_lims[3]:
-                    self.track_lims[3] = lat
-                if lon < self.track_lims[0]:
-                    self.track_lims[0] = lon
-                if lon > self.track_lims[2]:
-                    self.track_lims[2] = lon
+        if len(tracks):
+            for track in self.tracks:
+                for step in track:
+                    lat = step.get('lat')
+                    lon = step.get('lon')
+                    if lat < self.track_lims[1]:
+                        self.track_lims[1] = lat
+                    if lat > self.track_lims[3]:
+                        self.track_lims[3] = lat
+                    if lon < self.track_lims[0]:
+                        self.track_lims[0] = lon
+                    if lon > self.track_lims[2]:
+                        self.track_lims[2] = lon
+                logging.info("%s steps in bbox %s" % (len(track), self.track_lims))
 
-        logging.info("%s steps in bbox %s" % (len(track), self.track_lims))
+        logging.info("%s steps in bbox %s" % (len(self.tracks), self.track_lims))
         self.state = True # i think this makes it touchable
 
         if not self.font:
@@ -141,11 +146,13 @@ class gpsImage(Widget):
             addx = (maxx - minx)*0.1
             addy = (maxy - miny)*0.1
             self.bounds = (minx-addx, miny-addy, maxx+addx, maxy+addy)
+        self.image = None
 
     def toggleFullscreen(self):
         if not self.canvas:
             return False
 
+        self.image = None
         if self.fullscreen:
             self.xy = self.fullscreen
             self.fullscreen = None
@@ -161,8 +168,9 @@ class gpsImage(Widget):
 
         logging.debug("Bounds: %s Track bounds %s" % (repr(self.bounds), self.track_lims))
         self.canvas = canvas
-        
-        try:
+
+        if not self.image:
+          try:
             w = int(abs(self.xy[0] - self.xy[2]))
             h = int(abs(self.xy[1] - self.xy[3]))
             logging.debug("Width %s, height %s" % (w,h))
@@ -171,28 +179,14 @@ class gpsImage(Widget):
             dr.fontmode = '1'
             dr.rectangle((0,0,w-1,h-1), fill=None, outline='#c0c0c0')
 
-            # me in the middle
-            if "fuckme" in self.points:
-                mex = self.points['me'].get('lon')
-                mey = self.points['me'].get('lat')
-                if abs(self.bounds[2] - mex) > abs(self.bounds[0] - mex):
-                    scalex = (w/2)/abs(self.bounds[2] - mey)
-                else:
-                    scalex = (w/2)/abs(self.bounds[0] - mex)
-                if abs(self.bounds[3] - mey) > abs(self.bounds[1] - mey):
-                    scaley = (h/2)/abs(self.bounds[3] - mey)
-                else:
-                    scaley = (h/2)/abs(self.bounds[1] - mey)
+            mex = (self.bounds[2] + self.bounds[0])/2
+            mey = (self.bounds[3] + self.bounds[1])/2
+            if False and self.fullscreen: # testing different scale for fullscreen
+                scalex = (self.fullscreen[2] - self.fullscreen[0])/(self.bounds[2]-self.bounds[0]) * 2
+                scaley = (self.fullscreen[3] - self.fullscreen[1])/(self.bounds[3]-self.bounds[1]) * 2
             else:
-                mex = (self.bounds[2] + self.bounds[0])/2
-                mey = (self.bounds[3] + self.bounds[1])/2
-                #if self.fullscreen:
-                #    scalex = (self.fullscreen[2] - self.fullscreen[0])/(self.bounds[2]-self.bounds[0])
-                #    scaley = (self.fullscreen[3] - self.fullscreen[1])/(self.bounds[3]-self.bounds[1])
-                #else:
                 scalex = w/(self.bounds[2] - self.bounds[0])
-                scaley = h/(self.bounds[3] - self.bounds[1])
-
+                scaley = (h)/(self.bounds[3] - self.bounds[1])
 
             logging.debug("Scale is %s or %s" % (scalex, scaley))
 
@@ -201,14 +195,31 @@ class gpsImage(Widget):
                 scalex = scaley
             else:
                 scaley = scalex
-            logging.debug("Bounds: %s Track bounds %s" % (repr(self.bounds), self.track_lims))
+            logging.info("Bounds: %s Track bounds %s" % (repr(self.bounds), self.track_lims))
 
             if self.fullscreen:
-                #scaley /= 8.0
-                #scalex /= 8.0
-                pass
+                scaley *= 0.9
+                scalex *= 0.9
+            else:
+                scaley *= 0.9
+                scalex *= 0.9
 
             
+            logging.debug("Track %s, %s %s, %s" % (w, h,self.bounds[2]-self.bounds[0], self.bounds[3]-self.bounds[1]))
+
+            # draw tracks first
+            for i in range(len(self.tracks)-1, -1, -1):
+                if self.trackColors[i]:
+                    logging.info("Track %d, %s %d" % (i, self.trackColors[i], len(self.tracks[i])))
+                    for step in self.tracks[i]:
+                        lat = step.get('lat')
+                        lon = step.get('lon')
+                        x = (step.get('lon') - self.bounds[0]) * scalex #+ w/2
+                        y = (step.get('lat') - self.bounds[1]) * scaley #- h/2
+                        #logging.info(" Point - %s, %s, %s, %s %s" % (step.get('lat'), step.get('lon'), x, y, self.trackColors[i]))
+                        dr.point((x,h-y), fill=self.trackColors[i])
+
+            # then peers
             i = 0
             for name, tpv in self.points.items():
                 lat = tpv.get('lat')
@@ -219,28 +230,20 @@ class gpsImage(Widget):
                 #y = h - (tpv.get('lat') - mey) * scaley
                 dr.point((x,h-y), fill="black")
                 logging.debug("%s: %s, %s == %s, %s of %s, %s" % (name, lat, lon, x,y, w,h))
+                yoff = -1 if y > h/2 else 8
+                xoff = 1 if x < w/2 else -20
                 if name == "me":
-                    dr.text((x+1,h-(y-1)), name, font=self.font, fill="blue")                    
+                    dr.text((x+1,h-(y+yoff)), name, font=self.font, fill="blue")                    
                 elif i % 2:
-                    dr.text((x+1,h-(y-1)), name, font=self.font, fill="red")
+                    dr.text((x+1,h-(y+yoff)), name, font=self.font, fill="red")
                 else:
-                    dr.text((x+1,h-(y+9)), name, font=self.font, fill="brown")
+                    dr.text((x+1,h-(y+yoff)), name, font=self.font, fill="brown")
                 i += 1
-
-            logging.debug("Track %s, %s %s, %s" % (w, h,self.bounds[2]-self.bounds[0], self.bounds[3]-self.bounds[1]))
-
-            for step in self.track:
-                lat = step.get('lat')
-                lon = step.get('lon')
-                x = (step.get('lon') - self.bounds[0]) * scalex #+ w/2
-                y = (step.get('lat') - self.bounds[1]) * scaley #- h/2
-#                y = (step.get('lat') - mex) * scalex
-#                x = h - (step.get('lon') - mey) * scaley
-                logging.debug(" Point - %s, %s, %s, %s" % (step.get('lat'), step.get('lon'), x, y))
-                dr.point((x,h-y), fill="green")
-            canvas.paste(im, self.xy)
-        except Exception as e:
+            self.image = im
+        
+          except Exception as e:
             logging.exception(e)
+        canvas.paste(self.image, self.xy)        
         
 class PlotGPS(plugins.Plugin):
     __author__ = 'Sniffleupagus'
@@ -253,7 +256,7 @@ class PlotGPS(plugins.Plugin):
         logging.info("plot_gps plugin created")
         self.password = None
         self.ui_elements = []
-        self.track = []
+        self.tracks = []
         self.gpsImage = None
 
     # called when http://<host>:<port>/plugins/<plugin>/ is called
@@ -266,7 +269,12 @@ class PlotGPS(plugins.Plugin):
             query = unquote(request.query_string.decode('utf-8'))
             if "/fullscreen" in path:
                 if self.gpsImage:
-                    return "OK - Fullscreen: %s" % self.gpsImage.toggleFullscreen()
+                    res = "OK - Fullscreen: %s" % self.gpsImage.toggleFullscreen()
+                    if self._ui:
+                        self._ui.update(force=True)
+                    return res, 204
+
+
             return "<html><body>Woohoo! %s: %s<p>Request <a href=\"/plugins/plot_gps/fullscreen\">Toggle FullScreen</a></body></html>" % (path, query)
         except Exception as e:
             logging.exception(e)
@@ -279,11 +287,14 @@ class PlotGPS(plugins.Plugin):
 
     # called before the plugin is unloaded
     def on_unload(self, ui):
-        for el in self.ui_elements:
-            try:
-                ui.remove_element(el)
-            except Exception as e:
-                logging.exception(e)
+        with ui._lock:
+            for el in self.ui_elements:
+                try:
+                    ui.remove_element(el)
+                except Exception as e:
+                    logging.exception(e)
+        ui.update(force=True)
+        logging.info("plot_gps out")
 
     # called when there's internet connectivity
     def on_internet_available(self, agent):
@@ -297,20 +308,23 @@ class PlotGPS(plugins.Plugin):
 
         now = datetime.now()
 
-        fname = now.strftime("/etc/pwnagotchi/pwn_gpsd/pwntrack_%Y%m%d.txt")
-        if os.path.isfile(fname):
-            with open(fname) as f:
-                lines = [line.rstrip() for line in f]
-            for l in lines:
-                try:
-                    l = l.strip(",")
-                    tpv = json.loads(l)
-                    self.track.append(tpv)
-                except Exception as e:
-                    logging.exception("%s: %s" % (l, e))
-            logging.info("Reading track with %s steps" % len(self.track))
+        for i in range(6):
+            fname = (now - timedelta(days=i)).strftime("/etc/pwnagotchi/pwn_gpsd/pwntrack_%Y%m%d.txt")
+            logging.info("Loading day %d, %s" % (i,fname))
+            self.tracks.append([])
+            if os.path.isfile(fname):
+                with open(fname) as f:
+                    lines = [line.rstrip() for line in f]
+                for l in lines:
+                    try:
+                        l = l.strip(",")
+                        tpv = json.loads(l)
+                        self.tracks[i].append(tpv)
+                    except Exception as e:
+                        logging.exception("%s: %s" % (l, e))
+                logging.info("Read track %d with %s steps" % (i, len(self.tracks[i])))
 
-        self.gpsImage = gpsImage(password=self.password, track=self.track)
+        self.gpsImage = gpsImage(password=self.password, tracks=self.tracks)
         
         self.fields = self.options.get('fields', ['fix','lat','lon','alt','speed'])
         base_pos = self.options.get('pos', [0,55])
@@ -332,14 +346,13 @@ class PlotGPS(plugins.Plugin):
       except Exception as e:
           logging.exception(e)
 
+
     # called when the ui is updated
     def on_ui_update(self, ui):
         # update those elements
         if not self.agent or not self.gpsImage:
             return
         try:
-            self.gpsImage.processPeers(self.agent._peers)
-
             if self.gpsImage.mylocation:
                 self.fields = self.options.get('fields', ['fix','lat','lon','alt','spd'])
                 loc = self.gpsImage.mylocation
@@ -370,6 +383,8 @@ class PlotGPS(plugins.Plugin):
                     ui.set('plot_gps_speed', "---")
             else:
                 logging.info("No location yet: %s" % repr(self.gpsImage.mylocation))
+                self.gpsImage.processPeers(self.agent._peers)
+
         except Exception as e:
             logging.exception(e)
 
@@ -380,6 +395,7 @@ class PlotGPS(plugins.Plugin):
         logging.info("[PLOT] Touch release: %s, %s" % (touch_data, ui_element));
         if ui_element == "plot_gps":
             self.gpsImage.toggleFullscreen()
+            ui.update(force=True)
 
     # called when the hardware display setup is done, display is an hardware specific object
     def on_display_setup(self, display):
@@ -438,12 +454,21 @@ class PlotGPS(plugins.Plugin):
 
     # called when an epoch is over (where an epoch is a single loop of the main algorithm)
     def on_epoch(self, agent, epoch, epoch_data):
-        pass
+        if self.gpsImage:
+            self.gpsImage.processPeers(self.agent._peers)
 
     # called when a new peer is detected
     def on_peer_detected(self, agent, peer):
-        pass
+        if self.gpsImage:
+            self.gpsImage.processPeers(agent._peers)
+
+    def on_peer_updated(self, agent, peer):
+        logging.info("Peer updated %s" % peer)
+        if self.gpsImage:
+            self.gpsImage.processPeers(agent._peers)
 
     # called when a known peer is lost
     def on_peer_lost(self, agent, peer):
-        pass
+        if self.gpsImage:
+            self.gpsImage.processPeers(agent._peers)
+
