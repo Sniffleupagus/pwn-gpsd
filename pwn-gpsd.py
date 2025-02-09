@@ -381,7 +381,7 @@ class PWN_GPSD(plugins.Plugin):
                             # replicate the lat/long fields so webgpsmap can find them
                             location['Latitude'] = location.get('latitude')
                             location['Longitude'] = location.get('longitude')
-                            with open(fname, "w") as f:
+                            with open(fname, "w+") as f:
                                 f.write(json.dumps(location))
                             logging.info("Saved %s" % json.dumps(location))
                 except urllib.error.HTTPError as e:
@@ -746,7 +746,7 @@ if __name__ == "__main__":
                                                         if not os.path.isdir(os.path.dirname(fname)):
                                                             os.mkdir(os.path.dirname(fname))
                                                         with open(fname, "a+") as f:
-                                                            f.write(raw)
+                                                            f.write(raw.strip() + ",\n")
                                                     except Exception as e:
                                                         logging.exception("Saving current location: %s" % e)
 
