@@ -455,6 +455,23 @@ class PlotGPS(plugins.Plugin):
     # called when an epoch is over (where an epoch is a single loop of the main algorithm)
     def on_epoch(self, agent, epoch, epoch_data):
         if self.gpsImage:
+
+            now = datetime.now()
+            fname = now.strftime("/etc/pwnagotchi/pwn_gpsd/pwntrack_%Y%m%d.txt")
+            logging.info("Loading %s" % (fname))
+            if os.path.isfile(fname):
+                with open(fname) as f:
+                    lines = [line.rstrip() for line in f]
+                for l in lines:
+                    try:
+                        l = l.strip(",")
+                        tpv = json.loads(l)
+                        self.tracks[0].append(tpv)
+                    except Exception as e:
+                        logging.exception("%s: %s" % (l, e))
+                logging.info("Read track %d with %s steps" % (i, len(self.tracks[0])))
+
+            
             self.gpsImage.processPeers(self.agent._peers)
 
     # called when a new peer is detected
