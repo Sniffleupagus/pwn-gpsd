@@ -664,6 +664,14 @@ if __name__ == "__main__":
                         # archiving
                         logging.info("Updating cache from %s" % new_tpv)
                         messages_archive['TPV'] = json.dumps(new_tpv)
+                    if new_tpv.get('mode', -1) >= 2:
+                        if not os.path.isdir("/etc/pwnagotchi/pwn_gpsd"):
+                            os.mkdir("/etc/pwnagotchi/pwn_gpsd")
+                        try:
+                            with open("/etc/pwnagotchi/pwn_gpsd/current.txt", "w") as f:
+                                f.write(json.dumps(new_tpv))
+                        except Exception as e:
+                            logging.exception("Logging %s: %s" (new_tpv, e))
 
             for s in readable:
                 if s == server_socket:
