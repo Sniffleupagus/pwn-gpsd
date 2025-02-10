@@ -192,7 +192,7 @@ class gpsImage(Widget):
                 scalex = scaley
             else:
                 scaley = scalex
-            logging.info("Bounds: %s Track bounds %s" % (repr(self.bounds), self.track_lims))
+            logging.debug("Bounds: %s Track bounds %s" % (repr(self.bounds), self.track_lims))
 
             if self.fullscreen:
                 scaley *= 0.9
@@ -207,7 +207,7 @@ class gpsImage(Widget):
             # draw tracks first
             for i in range(len(self.tracks)-1, -1, -1):
                 if self.trackColors[i]:
-                    logging.info("Track %d, %s %d" % (i, self.trackColors[i], len(self.tracks[i])))
+                    logging.debug("Track %d, %s %d" % (i, self.trackColors[i], len(self.tracks[i])))
                     for step in self.tracks[i]:
                         lat = step.get('lat')
                         lon = step.get('lon')
@@ -294,7 +294,6 @@ class PlotGPS(plugins.Plugin):
                 except Exception as e:
                     logging.exception(e)
         ui.update(force=True)
-        logging.info("plot_gps out")
 
     # called when there's internet connectivity
     def on_internet_available(self, agent):
@@ -310,7 +309,6 @@ class PlotGPS(plugins.Plugin):
 
         for i in range(6):
             fname = (now - timedelta(days=i)).strftime("/etc/pwnagotchi/pwn_gpsd/pwntrack_%Y%m%d.txt")
-            logging.info("Loading day %d, %s" % (i,fname))
             self.tracks.append([])
             if os.path.isfile(fname):
                 with open(fname) as f:
@@ -322,7 +320,7 @@ class PlotGPS(plugins.Plugin):
                         self.tracks[i].append(tpv)
                     except Exception as e:
                         logging.exception("%s: %s" % (l, e))
-                logging.info("Read track %d with %s steps" % (i, len(self.tracks[i])))
+                logging.info("Read track %s with %s steps" % (fname, len(self.tracks[i])))
 
         self.gpsImage = gpsImage(password=self.password, tracks=self.tracks)
         
@@ -404,10 +402,10 @@ class PlotGPS(plugins.Plugin):
             logging.exception(e)
 
     def on_touch_press(self, ts, ui, ui_element, touch_data):
-        logging.info("[PLOT] Touch press: %s, %s" % (touch_data, ui_element));
+        logging.debug("[PLOT] Touch press: %s, %s" % (touch_data, ui_element));
 
     def on_touch_release(self, ts, ui, ui_element, touch_data):
-        logging.info("[PLOT] Touch release: %s, %s" % (touch_data, ui_element));
+        logging.debug("[PLOT] Touch release: %s, %s" % (touch_data, ui_element));
         if ui_element == "plot_gps":
             self.gpsImage.toggleFullscreen()
             ui.update(force=True)
@@ -458,10 +456,11 @@ class PlotGPS(plugins.Plugin):
                         with open("/etc/pwnagotchi/pwn_gpsd/current.txt", 'r') as f:
                             tpv = json.load(f)
                 if 'lat' in tpv:
-                    gps_filename = filename.replace(".pcap", ".pgps.json")
+                    gps_filename = filename.replace(".pcap", ".gps.json")
                     logging.info(f"saving GPS to {gps_filename} ({tpv})")
                     with open(gps_filename, "w+t") as fp:
                         json.dump(tpv, fp)
+                        fp.write(",\n")
                 else:
                     logging.info("not saving GPS. Couldn't find location.")
             except Exception as err:
