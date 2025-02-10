@@ -652,6 +652,7 @@ if __name__ == "__main__":
                             p_loc['name'] = adv['name']
                             p_loc['identity'] = adv['identity']
                             p_loc['Cached'] = time.time()
+                            p_loc['rssi'] = p.get('rssi', None)
                             friend_locs.append(p_loc)
 
                 # average locations for "my location"
@@ -662,20 +663,28 @@ if __name__ == "__main__":
                     new_tpv = friend_locs[0]
                     new_tpv['lat'] = 0
                     new_tpv['lon'] = 0
+                    new_tpv['rssi'] = 0
                     count = 0
+                    friends = 0
                     for f in friend_locs:
                         if f.get('mode', -2) > new_tpv.get('mode', 0):
                             new_tpv['mode'] = f.get('mode')
-                        if f.get('mode', -1) > 1:
-                            new_tpv['lat'] = new_tpv.get('lat', 0) + f.get('lat')
-                            new_tpv['lon'] = new_tpv.get('lon', 0) + f.get('lon')
-                            count += 1
+                        rssi = f.get('rssi', -100)
+                        mode = f.get('mode', -1)
+                        if mode > 1 and rssi > -100:
+                            new_tpv['lat'] = new_tpv.get('lat', 0) + f.get('lat') * int(100+rssi)
+                            new_tpv['lon'] = new_tpv.get('lon', 0) + f.get('lon') * int(100+rssi)
+                            new_tpv['rssi'] = new_tpv.get('rssi', 0) + rssi * int(100+rssi)
+                            count += int(100+rssi)
+                            friends+=1
                             logging.info("Running totals: %s %s", new_tpv['lon'], new_tpv['lat'])
                     if count:
                         logging.debug("Before Div 2: %s" % new_tpv['lat'])
                         new_tpv['lat'] /= count
                         new_tpv['lon'] /= count
-                        logging.debug("DIVIDED: %s" % new_tpv)
+                        new_tpv['rssi'] /= count
+                        new_tpv['undivided_count'] = (friends,count)
+                        logging.info("DIVIDED: %d, %d %s" % (friends, count, new_tpv))
 
                     else:
                         new_tpv = friend_locs[0]
