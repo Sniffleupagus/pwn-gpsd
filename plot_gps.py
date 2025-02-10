@@ -328,6 +328,8 @@ class PlotGPS(plugins.Plugin):
         self.fields = self.options.get('fields', ['fix','lat','lon','alt','speed'])
         base_pos = self.options.get('pos', [0,55])
         with ui._lock:
+            ui.add_element('plot_gps', self.gpsImage)
+            self.ui_elements.append('plot_gps')
             for f in self.fields:
                 fname = "plot_gps_" + f
                 pos = (base_pos[0], base_pos[1])
@@ -340,8 +342,6 @@ class PlotGPS(plugins.Plugin):
                                )
                 self.ui_elements.append(fname)
                 base_pos[1] += 10
-            ui.add_element('plot_gps', self.gpsImage)
-            self.ui_elements.append('plot_gps')
       except Exception as e:
           logging.exception(e)
 
