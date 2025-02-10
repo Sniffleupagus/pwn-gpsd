@@ -655,23 +655,43 @@ if __name__ == "__main__":
                             friend_locs.append(p_loc)
 
                 # average locations for "my location"
-                logging.info("Peer derived location:%s" % friend_locs)
+                logging.info("Peer derived %d location:%s" % (len(friend_locs),friend_locs))
                 # store in cache
                 if len(friend_locs):
                     last_tpv = json.loads(messages_archive.get('TPV', "{}"))
                     new_tpv = friend_locs[0]
+                    new_tpv['lat'] = 0
+                    new_tpv['lon'] = 0
+                    count = 0
+                    for f in friend_locs:
+                        if f.get('mode', -2) > new_tpv.get('mode', 0):
+                            new_tpv['mode'] = f.get('mode')
+                        if f.get('mode', -1) > 1:
+                            new_tpv['lat'] = new_tpv.get('lat', 0) + f.get('lat')
+                            new_tpv['lon'] = new_tpv.get('lon', 0) + f.get('lon')
+                            count += 1
+                            logging.info("Running totals: %s %s", new_tpv['lon'], new_tpv['lat'])
+                    if count:
+                        logging.debug("Before Div 2: %s" % new_tpv['lat'])
+                        new_tpv['lat'] /= count
+                        new_tpv['lon'] /= count
+                        logging.debug("DIVIDED: %s" % new_tpv)
+
+                    else:
+                        new_tpv = friend_locs[0]
                     if new_tpv.get('mode', -1) >= last_tpv.get('mode', 0):
                         # archiving
-                        logging.info("Updating cache from %s" % new_tpv)
+                        logging.info("Updating cache from %d friends %s" % (count, new_tpv))
                         messages_archive['TPV'] = json.dumps(new_tpv)
                     if new_tpv.get('mode', -1) >= 2:
                         if not os.path.isdir("/etc/pwnagotchi/pwn_gpsd"):
                             os.mkdir("/etc/pwnagotchi/pwn_gpsd")
                         try:
                             with open("/etc/pwnagotchi/pwn_gpsd/current.txt", "w") as f:
+                                logging.info("CURRENT: %s" % new_tpv)
                                 f.write(json.dumps(new_tpv))
                         except Exception as e:
-                            logging.exception("Logging %s: %s" (new_tpv, e))
+                            logging.exception("Logging %s: %s" % (new_tpv, e))
 
             for s in readable:
                 if s == server_socket:
@@ -778,7 +798,6 @@ if __name__ == "__main__":
                                         for cl in client_sockets.keys():
                                             if client_sockets[cl].watch.get('enable', False):
                                                 if last.get('identity'):
-                                                    logging.info("Keeping remote loc")
                                                     queue_message_for(cl, json.dumps(last))
                                                 else:
                                                     queue_message_for(cl, raw)
@@ -812,7 +831,7 @@ if __name__ == "__main__":
                             if m_class == 'TPV':
                                 last = json.loads(messages_archive.get(m_class, "{}"))
                                 if last.get('identity'):
-                                    logging.info("Keeping remote loc")
+                                    logging.debug("Keeping remote loc")
                                 else:
                                     messages_archive[m_class] = raw
                             else:
