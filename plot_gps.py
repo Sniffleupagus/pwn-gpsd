@@ -227,12 +227,13 @@ class gpsImage(Widget):
                 logging.debug("%s: %s, %s == %s, %s of %s, %s" % (name, lat, lon, x,y, w,h))
                 yoff = -1 if y > h/2 else 8
                 xoff = 1 if x < w/2 else -20
-                if name == "me":
-                    dr.text((x+1,h-(y+yoff)), name, font=self.font, fill="blue")                    
-                elif i % 2:
-                    dr.text((x+1,h-(y+yoff)), name, font=self.font, fill="red")
+                fillc = "blue" if name == "me" else "red"
+
+                if not self.fullscreen:
+                    dr.text((x+1,h-(y+yoff)), name[0], font=self.font, fill=fillc)
                 else:
-                    dr.text((x+1,h-(y+yoff)), name, font=self.font, fill="brown")
+                    dr.text((x+1,h-(y+yoff)), name, font=self.font, fill=fillc)
+
                 i += 1
             self.image = im
         
@@ -372,11 +373,26 @@ class PlotGPS(plugins.Plugin):
 
                 alt = loc.get('alt', None)
                 if alt:
+                    # altitude is in meters
+                    match self.options.get('units', 'metric'):
+                        case 'feet':
+                            alt *= 3.28084
+                        case 'imperial':
+                            alt *= 3.28084
+                            
                     ui.set('plot_gps_alt', "%6.2f" % alt)
 
                 speed = loc.get('speed', None)
                 if speed:
-                    speed = speed * 2.237  # miles per hour. use 3.6 for kph
+                    # speed is in meters per second
+                    match self.options.get('units', 'metric'):
+                        case 'feet':
+                            speed = speed * 2.237  # miles per hour. use 3.6 for kph
+                        case 'imperial':
+                            speed = speed * 2.237  # miles per hour. use 3.6 for kph
+                        case 'metric':
+                            speed = speed * 3.6
+                    
                     ui.set('plot_gps_speed', "%6.2f" % speed)
                 else:
                     ui.set('plot_gps_speed', "---")
