@@ -195,11 +195,11 @@ class gpsImage(Widget):
             logging.debug("Bounds: %s Track bounds %s" % (repr(self.bounds), self.track_lims))
 
             if self.fullscreen:
-                scaley *= 0.9
-                scalex *= 0.9
+                scaley *= 0.95
+                scalex *= 0.95
             else:
-                scaley *= 0.9
-                scalex *= 0.9
+                scaley *= 0.95
+                scalex *= 0.95
 
             
             logging.debug("Track %s, %s %s, %s" % (w, h,self.bounds[2]-self.bounds[0], self.bounds[3]-self.bounds[1]))
