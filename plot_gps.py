@@ -206,15 +206,14 @@ class gpsImage(Widget):
             logging.debug("Midpoint: %s, %s" % (mex, mey))
             # draw tracks first
             for i in range(len(self.tracks)-1, -1, -1):
-                if self.trackColors[i]:
-                    logging.debug("Track %d, %s %d" % (i, self.trackColors[i], len(self.tracks[i])))
-                    for step in self.tracks[i]:
-                        lat = step.get('lat')
-                        lon = step.get('lon')
-                        x = (step.get('lon') - mex) * scalex + w/2
-                        y = (step.get('lat') - mey) * scaley + h/2
-                        #logging.info(" Point - %s, %s, %s, %s %s" % (step.get('lat'), step.get('lon'), x, y, self.trackColors[i]))
-                        dr.point((x,h-y), fill=self.trackColors[i])
+                logging.debug("Track %d, %s %d" % (i, self.trackColors[i], len(self.tracks[i])))
+                for step in self.tracks[i]:
+                    lat = step.get('lat')
+                    lon = step.get('lon')
+                    x = (step.get('lon') - mex) * scalex + w/2
+                    y = (step.get('lat') - mey) * scaley + h/2
+                    #logging.info(" Point - %s, %s, %s, %s %s" % (step.get('lat'), step.get('lon'), x, y, self.trackColors[i%len(self.trackColors)]))
+                    dr.point((x,h-y), fill=self.trackColors[i % len(self.trackColors)])
 
             # then peers
             i = 0
@@ -247,7 +246,7 @@ class gpsImage(Widget):
         
 class PlotGPS(plugins.Plugin):
     __author__ = 'Sniffleupagus'
-    __version__ = '1.0.0'
+    __version__ = '1.0.2'
     __license__ = 'GPL3'
     __description__ = 'An example plugin for pwnagotchi that implements all the available callbacks.'
 
