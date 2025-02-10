@@ -307,7 +307,7 @@ class PlotGPS(plugins.Plugin):
 
         now = datetime.now()
 
-        for i in range(6):
+        for i in range(self.options.get("day_tracks", 5)):
             fname = (now - timedelta(days=i)).strftime("/etc/pwnagotchi/pwn_gpsd/pwntrack_%Y%m%d.txt")
             self.tracks.append([])
             if os.path.isfile(fname):
