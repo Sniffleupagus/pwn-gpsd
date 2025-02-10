@@ -179,14 +179,11 @@ class gpsImage(Widget):
             dr.fontmode = '1'
             dr.rectangle((0,0,w-1,h-1), fill=None, outline='#c0c0c0')
 
+            # midpoint longitude and latitude
             mex = (self.bounds[2] + self.bounds[0])/2
             mey = (self.bounds[3] + self.bounds[1])/2
-            if False and self.fullscreen: # testing different scale for fullscreen
-                scalex = (self.fullscreen[2] - self.fullscreen[0])/(self.bounds[2]-self.bounds[0]) * 2
-                scaley = (self.fullscreen[3] - self.fullscreen[1])/(self.bounds[3]-self.bounds[1]) * 2
-            else:
-                scalex = w/(self.bounds[2] - self.bounds[0])
-                scaley = (h)/(self.bounds[3] - self.bounds[1])
+            scalex = w/(self.bounds[2] - self.bounds[0])
+            scaley = (h)/(self.bounds[3] - self.bounds[1])
 
             logging.debug("Scale is %s or %s" % (scalex, scaley))
 
@@ -206,7 +203,7 @@ class gpsImage(Widget):
 
             
             logging.debug("Track %s, %s %s, %s" % (w, h,self.bounds[2]-self.bounds[0], self.bounds[3]-self.bounds[1]))
-
+            logging.debug("Midpoint: %s, %s" % (mex, mey))
             # draw tracks first
             for i in range(len(self.tracks)-1, -1, -1):
                 if self.trackColors[i]:
@@ -214,8 +211,8 @@ class gpsImage(Widget):
                     for step in self.tracks[i]:
                         lat = step.get('lat')
                         lon = step.get('lon')
-                        x = (step.get('lon') - self.bounds[0]) * scalex #+ w/2
-                        y = (step.get('lat') - self.bounds[1]) * scaley #- h/2
+                        x = (step.get('lon') - mex) * scalex + w/2
+                        y = (step.get('lat') - mey) * scaley + h/2
                         #logging.info(" Point - %s, %s, %s, %s %s" % (step.get('lat'), step.get('lon'), x, y, self.trackColors[i]))
                         dr.point((x,h-y), fill=self.trackColors[i])
 
@@ -224,10 +221,8 @@ class gpsImage(Widget):
             for name, tpv in self.points.items():
                 lat = tpv.get('lat')
                 lon = tpv.get('lon')
-                x = (tpv.get('lon') - self.bounds[0]) * scalex #+ w/2
-                y = ((tpv.get('lat') - self.bounds[1]) * scaley )# - h/2
-                #x = (tpv.get('lon') - mex) * scalex
-                #y = h - (tpv.get('lat') - mey) * scaley
+                x = (tpv.get('lon') - mex) * scalex + w/2
+                y = (tpv.get('lat') - mey) * scaley + h/2
                 dr.point((x,h-y), fill="black")
                 logging.debug("%s: %s, %s == %s, %s of %s, %s" % (name, lat, lon, x,y, w,h))
                 yoff = -1 if y > h/2 else 8
@@ -243,7 +238,11 @@ class gpsImage(Widget):
         
           except Exception as e:
             logging.exception(e)
-        canvas.paste(self.image, self.xy)        
+        try:
+            canvas.paste(self.image, self.xy)
+        except ValueError as e:
+            logging.error("Resetting image: %s" % e)
+            self.image = None
         
 class PlotGPS(plugins.Plugin):
     __author__ = 'Sniffleupagus'
