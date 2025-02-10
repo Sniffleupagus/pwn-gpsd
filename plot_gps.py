@@ -206,7 +206,6 @@ class gpsImage(Widget):
             logging.debug("Midpoint: %s, %s" % (mex, mey))
             # draw tracks first
             for i in range(len(self.tracks)-1, -1, -1):
-                logging.debug("Track %d, %s %d" % (i, self.trackColors[i], len(self.tracks[i])))
                 for step in self.tracks[i]:
                     lat = step.get('lat')
                     lon = step.get('lon')
