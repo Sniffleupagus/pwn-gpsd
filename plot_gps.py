@@ -484,7 +484,7 @@ class PlotGPS(plugins.Plugin):
                         self.tracks[0].append(tpv)
                     except Exception as e:
                         logging.exception("%s: %s" % (l, e))
-                logging.info("Read track %d with %s steps" % (i, len(self.tracks[0])))
+                logging.info("Read track with %s steps" % (len(self.tracks[0])))
 
             
             self.gpsImage.processPeers(self.agent._peers)
