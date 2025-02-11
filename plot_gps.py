@@ -149,10 +149,11 @@ class gpsImage(Widget):
         self.image = None
 
     def toggleFullscreen(self):
+        logging.info("Toggle")
+        self.image = None
         if not self.canvas:
             return False
 
-        self.image = None
         if self.fullscreen:
             self.xy = self.fullscreen
             self.fullscreen = None
@@ -171,6 +172,7 @@ class gpsImage(Widget):
 
         if not self.image:
           try:
+            logging.info("Drawing in %s" % (repr(self.xy)))
             w = int(abs(self.xy[0] - self.xy[2]))
             h = int(abs(self.xy[1] - self.xy[3]))
             logging.debug("Width %s, height %s" % (w,h))
@@ -223,14 +225,16 @@ class gpsImage(Widget):
                 y = (tpv.get('lat') - mey) * scaley + h/2
                 dr.point((x,h-y), fill="black")
                 logging.debug("%s: %s, %s == %s, %s of %s, %s" % (name, lat, lon, x,y, w,h))
-                yoff = -1 if y > h/2 else 8
-                xoff = 1 if x < w/2 else -20
+                yoff = -1 if y > h/2 else 9
+                xoff = 1
                 fillc = "blue" if name == "me" else "red"
-
+                if name == "me":
+                    xoff -=8
+                
                 if not self.fullscreen:
-                    dr.text((x+1,h-(y+yoff)), name[0], font=self.font, fill=fillc)
+                    dr.text((x+xoff,h-(y+yoff)), name[0], font=self.font, fill=fillc)
                 else:
-                    dr.text((x+1,h-(y+yoff)), name, font=self.font, fill=fillc)
+                    dr.text((x+xoff,h-(y+yoff)), name, font=self.font, fill=fillc)
 
                 i += 1
             self.image = im
@@ -264,16 +268,14 @@ class PlotGPS(plugins.Plugin):
         try:
             method = request.method
             path = request.path
-            query = unquote(request.query_string.decode('utf-8'))
             if "/fullscreen" in path:
                 if self.gpsImage:
-                    res = "OK - Fullscreen: %s" % self.gpsImage.toggleFullscreen()
+                    res = "Fullscreen map %s" % ("on" if self.gpsImage.toggleFullscreen() else "off")
                     if self._ui:
-                        self._ui.update(force=True)
+                        self._ui.update(new_data={'status':res})
                     return res, 204
 
-
-            return "<html><body>Woohoo! %s: %s<p>Request <a href=\"/plugins/plot_gps/fullscreen\">Toggle FullScreen</a></body></html>" % (path, query)
+            return "<html><body>Woohoo! %s<p>Request <a href=\"/plugins/plot_gps/fullscreen\">Toggle FullScreen</a></body></html>" % (path)
         except Exception as e:
             logging.exception(e)
             return "<html><body>Error! %s</body></html>" % (e)
@@ -292,6 +294,7 @@ class PlotGPS(plugins.Plugin):
                 except Exception as e:
                     logging.exception(e)
         ui.update(force=True)
+        logging.info("Unloaded")
 
     # called when there's internet connectivity
     def on_internet_available(self, agent):
@@ -314,14 +317,17 @@ class PlotGPS(plugins.Plugin):
                 for l in lines:
                     try:
                         l = l.strip(",")
-                        tpv = json.loads(l)
-                        self.tracks[i].append(tpv)
+                        l = l.strip('\000')
+                        if l != "":
+                            tpv = json.loads(l)
+                            self.tracks[i].append(tpv)
                     except Exception as e:
                         logging.exception("%s: %s" % (l, e))
                 logging.info("Read track %s with %s steps" % (fname, len(self.tracks[i])))
 
         self.gpsImage = gpsImage(password=self.password, tracks=self.tracks)
-        
+        self.gpsImage.processPeers({})
+
         self.fields = self.options.get('fields', ['fix','lat','lon','alt','speed'])
         base_pos = self.options.get('pos', [0,55])
         with ui._lock:
@@ -368,26 +374,25 @@ class PlotGPS(plugins.Plugin):
                         ui.set(fname, "%9.4f" % fval)
 
                 alt = loc.get('alt', None)
+                units = self.options.get('units', 'metric')
                 if alt:
                     # altitude is in meters
-                    match self.options.get('units', 'metric'):
-                        case 'feet':
-                            alt *= 3.28084
-                        case 'imperial':
-                            alt *= 3.28084
+                    if units == 'feet':
+                        alt *= 3.28084
+                    if units == 'imperial':
+                        alt *= 3.28084
                             
                     ui.set('plot_gps_alt', "%6.2f" % alt)
 
                 speed = loc.get('speed', None)
                 if speed:
                     # speed is in meters per second
-                    match self.options.get('units', 'metric'):
-                        case 'feet':
-                            speed = speed * 2.237  # miles per hour. use 3.6 for kph
-                        case 'imperial':
-                            speed = speed * 2.237  # miles per hour. use 3.6 for kph
-                        case 'metric':
-                            speed = speed * 3.6
+                    if units == 'feet':
+                        speed = speed * 2.237  # miles per hour. use 3.6 for kph
+                    if units == 'imperial':
+                        speed = speed * 2.237  # miles per hour. use 3.6 for kph
+                    if units == 'metric':
+                        speed = speed * 3.6
                     
                     ui.set('plot_gps_speed', "%6.2f" % speed)
                 else:
@@ -477,14 +482,15 @@ class PlotGPS(plugins.Plugin):
                 for l in lines:
                     try:
                         l = l.strip(",")
+                        l = l.strip('\000')
                         tpv = json.loads(l)
                         self.tracks[0].append(tpv)
                     except Exception as e:
                         logging.exception("%s: %s" % (l, e))
                 logging.info("Read track with %s steps" % (len(self.tracks[0])))
 
-            
-            self.gpsImage.processPeers(self.agent._peers)
+            if self.agent: 
+                self.gpsImage.processPeers(self.agent._peers)
 
     # called when a new peer is detected
     def on_peer_detected(self, agent, peer):
