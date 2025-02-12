@@ -35,6 +35,7 @@ class gpsImage(Widget):
         self.mylocation = {}
         self.tracks = tracks
         self.tracks_updated = 0
+        self.current_updated = 0
         self.trackColors = ["#00ff00", "#00ff80", "#00c0c0", "#40c0c0", "#c0ffee", "#c080c0"]
         self.track_lims = [200,200,-200,-200]
         self.fullscreen = None
@@ -94,34 +95,42 @@ class gpsImage(Widget):
 
         # get my location
         try:
-            if os.path.isfile("/etc/pwnagotchi/pwn_gpsd/current.txt"):
-                with open("/etc/pwnagotchi/pwn_gpsd/current.txt", 'r') as f:
-                    tpv = json.load(f)
-                    self.mylocation = tpv
-                    if 'lat' in tpv:
-                        logging.debug("Me: %s, %s" % (tpv.get('lat'), tpv.get('lon')))
-                        points["me"] = tpv
-                        if tpv['lon'] < minx:
-                            minx = tpv['lon']
-                        if tpv['lon'] > maxx:
-                            maxx = tpv['lon']
-                        if tpv['lat'] < miny:
-                            miny = tpv['lat']
-                        if tpv['lat'] > maxy:
-                            maxy = tpv['lat']
+            fname = "/etc/pwnagotchi/pwn_gpsd/current.txt"
+            if os.path.isfile(fname):
+                st = os.stat(fname)
+                mtime = st.st_mtime if st else 0
+
+                if mtime == self.current_updated:
+                    logging.info("Current unchanged.")
+                    tpv = self.mylocation
+                else:
+                    self.current_updated = mtime
+                    with open(fname, 'r') as f:
+                        tpv = json.load(f)
+                        self.mylocation = tpv
+                if 'lat' in tpv:
+                    logging.info("Me: %s, %s" % (tpv.get('lat'), tpv.get('lon')))
+                    points["me"] = tpv
+                    if tpv['lon'] < minx:
+                        minx = tpv['lon']
+                    if tpv['lon'] > maxx:
+                        maxx = tpv['lon']
+                    if tpv['lat'] < miny:
+                        miny = tpv['lat']
+                    if tpv['lat'] > maxy:
+                        maxy = tpv['lat']
             else:
                 logging.debug("Nope")
         except Exception as e:
             logging.exception(e)
 
         
-        logging.debug(peers)
         for id,p in peers.items():
-            #logging.info("Peer: %s" % p)
+            logging.debug("Peer: %s" % p.adv)
             adv = p.adv   # wtf
             if 'snorlax' in adv:
                 tpv = json.loads(self.decrypt_data(adv.get('snorlax', {})))
-                logging.debug("%s: %s" % (p.name(), tpv))
+                logging.info("%s: %s" % (p.name(), tpv))
                 if 'lat' in tpv:
                     logging.info("%s -> %s, %s" % (p.name(), tpv.get('lat', random.randint(0,100)), tpv.get('lon', random.randint(0,100))))
                     points[p.name()] = tpv
@@ -297,7 +306,6 @@ class PlotGPS(plugins.Plugin):
                 except Exception as e:
                     logging.exception(e)
         ui.update(force=True)
-        logging.info("Unloaded")
 
     # called when there's internet connectivity
     def on_internet_available(self, agent):
@@ -313,8 +321,8 @@ class PlotGPS(plugins.Plugin):
 
         for i in range(self.options.get("day_tracks", 5)):
             fname = (now - timedelta(days=i)).strftime("/etc/pwnagotchi/pwn_gpsd/pwntrack_%Y%m%d.txt")
-            self.tracks.append([])
             if os.path.isfile(fname):
+                track = []
                 with open(fname) as f:
                     lines = [line.rstrip() for line in f]
                 for l in lines:
@@ -323,10 +331,11 @@ class PlotGPS(plugins.Plugin):
                         l = l.strip('\000')
                         if l != "":
                             tpv = json.loads(l)
-                            self.tracks[i].append(tpv)
+                            tracks.append(tpv)
                     except Exception as e:
                         logging.exception("%s: %s" % (l, e))
-                logging.info("Read track %s with %s steps" % (fname, len(self.tracks[i])))
+                logging.info("Read track %s with %s steps" % (fname, len(track)))
+                self.tracks.append(track)
 
         self.gpsImage = gpsImage(password=self.password, tracks=self.tracks)
         self.gpsImage.processPeers({})
