@@ -110,7 +110,7 @@ class gpsImage(Widget):
                             maxy = tpv['lat']
             else:
                 logging.info("Nope")
-        except exception as e:
+        except Exception as e:
             logging.exception(e)
 
         
