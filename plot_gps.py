@@ -34,6 +34,7 @@ class gpsImage(Widget):
         self.password = password
         self.mylocation = {}
         self.tracks = tracks
+        self.tracks_updated = 0
         self.trackColors = ["#00ff00", "#00ff80", "#00c0c0", "#40c0c0", "#c0ffee", "#c080c0"]
         self.track_lims = [200,200,-200,-200]
         self.fullscreen = None
@@ -109,7 +110,7 @@ class gpsImage(Widget):
                         if tpv['lat'] > maxy:
                             maxy = tpv['lat']
             else:
-                logging.info("Nope")
+                logging.debug("Nope")
         except Exception as e:
             logging.exception(e)
 
@@ -173,7 +174,7 @@ class gpsImage(Widget):
 
         if not self.image:
           try:
-            logging.info("Drawing in %s" % (repr(self.xy)))
+            logging.debug("Drawing in %s" % (repr(self.xy)))
             w = int(abs(self.xy[0] - self.xy[2]))
             h = int(abs(self.xy[1] - self.xy[3]))
             logging.debug("Width %s, height %s" % (w,h))
@@ -240,7 +241,7 @@ class gpsImage(Widget):
                 i += 1
             self.image = im
             self.value = im
-        
+
           except Exception as e:
             logging.exception(e)
         try:
@@ -400,7 +401,7 @@ class PlotGPS(plugins.Plugin):
                 else:
                     ui.set('spd', "---")
             else:
-                logging.info("No location yet: %s" % repr(self.gpsImage.mylocation))
+                logging.debug("No location yet: %s" % repr(self.gpsImage.mylocation))
                 self.gpsImage.processPeers(self.agent._peers)
             ui.set('plot_gps', self.gpsImage)
         except Exception as e:
@@ -477,19 +478,27 @@ class PlotGPS(plugins.Plugin):
 
             now = datetime.now()
             fname = now.strftime("/etc/pwnagotchi/pwn_gpsd/pwntrack_%Y%m%d.txt")
-            logging.info("Loading %s" % (fname))
             if os.path.isfile(fname):
-                with open(fname) as f:
-                    lines = [line.rstrip() for line in f]
-                for l in lines:
-                    try:
-                        l = l.strip(",")
-                        l = l.strip('\000')
-                        tpv = json.loads(l)
-                        self.tracks[0].append(tpv)
-                    except Exception as e:
-                        logging.exception("%s: %s" % (l, e))
-                logging.info("Read track with %s steps" % (len(self.tracks[0])))
+                st = os.stat(fname)
+                mtime = st.st_mtime if st else 0
+
+                if mtime == self.tracks_updated:
+                    logging.debug("Tracks unchanged.")
+                else:
+                    self.tracks_updated = mtime
+                    
+                    logging.info("Reloading track %s" % (fname))
+                    with open(fname) as f:
+                        lines = [line.rstrip() for line in f]
+                    for l in lines:
+                        try:
+                            l = l.strip(",")
+                            l = l.strip('\0')
+                            tpv = json.loads(l)
+                            self.tracks[0].append(tpv)
+                        except Exception as e:
+                            logging.exception("%s: %s" % (l, e))
+                    logging.info("Read track with %s steps" % (len(self.tracks[0])))
 
             if self.agent: 
                 self.gpsImage.processPeers(self.agent._peers)
