@@ -271,6 +271,8 @@ class PlotGPS(plugins.Plugin):
         self.password = None
         self.ui_elements = []
         self.tracks = []
+        self.tracks_updated = 0
+        self.current_updated = 0
         self.gpsImage = None
 
     # called when http://<host>:<port>/plugins/<plugin>/ is called
@@ -331,7 +333,7 @@ class PlotGPS(plugins.Plugin):
                         l = l.strip('\000')
                         if l != "":
                             tpv = json.loads(l)
-                            tracks.append(tpv)
+                            track.append(tpv)
                     except Exception as e:
                         logging.exception("%s: %s" % (l, e))
                 logging.info("Read track %s with %s steps" % (fname, len(track)))
@@ -411,7 +413,7 @@ class PlotGPS(plugins.Plugin):
                     ui.set('spd', "---")
             else:
                 logging.debug("No location yet: %s" % repr(self.gpsImage.mylocation))
-                self.gpsImage.processPeers(self.agent._peers)
+                #self.gpsImage.processPeers(self.agent._peers)
             ui.set('plot_gps', self.gpsImage)
         except Exception as e:
             logging.exception(e)
