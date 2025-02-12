@@ -643,7 +643,10 @@ if __name__ == "__main__":
                 friend_locs = []
                 for p in peers:
                     adv = p.get('advertisement', {})
-                    pos = gpsd.decrypt_data(adv.get('snorlax', {}))
+                    try:
+                        pos = gpsd.decrypt_data(adv.get('snorlax', {}))
+                    except Exception as e:
+                        logging.info("Failed %s\n\t%s\n\t%s" % (e, adv.get('name'), adv))
                     if pos:
                         logging.debug("Peer %s pos: %s" % (adv.get('name', ""), pos))
                         p_loc = json.loads(pos)
@@ -656,7 +659,10 @@ if __name__ == "__main__":
                             friend_locs.append(p_loc)
 
                 # average locations for "my location"
-                logging.info("Peer derived %d location:%s" % (len(friend_locs),friend_locs))
+                for f in friend_locs:
+                    if 'lon' in f:
+                        logging.info("Peer %s\t%s,%s\t%s\t%s" % (f['name'], f['lon'], f['lat'], f['rssi'],  f.get("time", "")))
+                
                 # store in cache
                 if len(friend_locs):
                     last_tpv = json.loads(messages_archive.get('TPV', "{}"))
@@ -681,15 +687,16 @@ if __name__ == "__main__":
                             new_tpv['rssi'] = new_tpv.get('rssi', 0) + rssi * weight
                             count += weight
                             friends+=1
-                            logging.debug("Running totals: %s %s", new_tpv['lon'], new_tpv['lat'])
+                            logging.info("Running totals: %s %s", new_tpv['lon'], new_tpv['lat'])
                     if friends > 0:
                         if count:
-                            logging.debug("Before Div 2: %s" % new_tpv['lat'])
+                            logging.info("Before Div 2: %s" % (new_tpv['lat']/count))
                             new_tpv['lat'] /= count
                             new_tpv['lon'] /= count
                             new_tpv['rssi'] /= count
                             new_tpv['undivided_count'] = (friends,count)
-                            logging.debug("DIVIDED: %d, %d %s" % (friends, count, new_tpv))
+                            logging.info("DIVIDED: %d, %d %s" % (friends, count, new_tpv))
+                            logging.info("->Me %s\t%s,%s\t%s\t%s" % (new_tpv['name'], new_tpv['lon'], new_tpv['lat'], new_tpv['rssi'],  new_tpv.get("time", "")))
 
                         if new_tpv.get('mode', -1) >= last_tpv.get('mode', 0):
                             # archiving
