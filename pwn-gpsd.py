@@ -820,6 +820,8 @@ if __name__ == "__main__":
                                                 logging.exception(e)
                                                 pwngridAdvertising = False
                                         
+                            elif m_class == 'PPS': # pps time
+                                pass
                             elif m_class == 'SKY': # sats
                                 nsats = data.get('nSat', 0)
                                 for sat in data.get('satellites', []):
