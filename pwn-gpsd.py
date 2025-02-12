@@ -661,46 +661,49 @@ if __name__ == "__main__":
                 if len(friend_locs):
                     last_tpv = json.loads(messages_archive.get('TPV', "{}"))
                     new_tpv = friend_locs[0]
+                    new_tpv['name'] = "me"
                     new_tpv['lat'] = 0
                     new_tpv['lon'] = 0
                     new_tpv['rssi'] = 0
+                    new_tpv['mode'] = 0
                     count = 0
                     friends = 0
                     for f in friend_locs:
                         if f.get('mode', -2) > new_tpv.get('mode', 0):
                             new_tpv['mode'] = f.get('mode')
-                        rssi = f.get('rssi', -100)
+                            logging.debug("Picking mode from %s" % f)
+                        rssi = f.get('rssi', -198)
                         mode = f.get('mode', -1)
-                        if mode > 1 and rssi > -100:
-                            new_tpv['lat'] = new_tpv.get('lat', 0) + f.get('lat') * int(100+rssi)
-                            new_tpv['lon'] = new_tpv.get('lon', 0) + f.get('lon') * int(100+rssi)
-                            new_tpv['rssi'] = new_tpv.get('rssi', 0) + rssi * int(100+rssi)
-                            count += int(100+rssi)
+                        if mode > 1:
+                            weight = int(100+(rssi if rssi > -200 else -198)/2)
+                            new_tpv['lat'] = new_tpv.get('lat', 0) + f.get('lat') * weight
+                            new_tpv['lon'] = new_tpv.get('lon', 0) + f.get('lon') * weight
+                            new_tpv['rssi'] = new_tpv.get('rssi', 0) + rssi * weight
+                            count += weight
                             friends+=1
-                            logging.info("Running totals: %s %s", new_tpv['lon'], new_tpv['lat'])
-                    if count:
-                        logging.debug("Before Div 2: %s" % new_tpv['lat'])
-                        new_tpv['lat'] /= count
-                        new_tpv['lon'] /= count
-                        new_tpv['rssi'] /= count
-                        new_tpv['undivided_count'] = (friends,count)
-                        logging.info("DIVIDED: %d, %d %s" % (friends, count, new_tpv))
+                            logging.debug("Running totals: %s %s", new_tpv['lon'], new_tpv['lat'])
+                    if friends > 0:
+                        if count:
+                            logging.debug("Before Div 2: %s" % new_tpv['lat'])
+                            new_tpv['lat'] /= count
+                            new_tpv['lon'] /= count
+                            new_tpv['rssi'] /= count
+                            new_tpv['undivided_count'] = (friends,count)
+                            logging.debug("DIVIDED: %d, %d %s" % (friends, count, new_tpv))
 
-                    else:
-                        new_tpv = friend_locs[0]
-                    if new_tpv.get('mode', -1) >= last_tpv.get('mode', 0):
-                        # archiving
-                        logging.info("Updating cache from %d friends %s" % (count, new_tpv))
-                        messages_archive['TPV'] = json.dumps(new_tpv)
-                    if new_tpv.get('mode', -1) >= 2:
-                        if not os.path.isdir("/etc/pwnagotchi/pwn_gpsd"):
-                            os.mkdir("/etc/pwnagotchi/pwn_gpsd")
-                        try:
-                            with open("/etc/pwnagotchi/pwn_gpsd/current.txt", "w") as f:
-                                logging.info("CURRENT: %s" % new_tpv)
-                                f.write(json.dumps(new_tpv))
-                        except Exception as e:
-                            logging.exception("Logging %s: %s" % (new_tpv, e))
+                        if new_tpv.get('mode', -1) >= last_tpv.get('mode', 0):
+                            # archiving
+                            logging.debug("Updating cache from %d friends %s" % (count, new_tpv))
+                            messages_archive['TPV'] = json.dumps(new_tpv)
+                        if new_tpv.get('mode', -1) >= 2:
+                            if not os.path.isdir("/etc/pwnagotchi/pwn_gpsd"):
+                                os.mkdir("/etc/pwnagotchi/pwn_gpsd")
+                            try:
+                                with open("/etc/pwnagotchi/pwn_gpsd/current.txt", "w") as f:
+                                    logging.debug("CURRENT: %s" % new_tpv)
+                                    f.write(json.dumps(new_tpv))
+                            except Exception as e:
+                                logging.exception("Logging %s: %s" % (new_tpv, e))
 
             for s in readable:
                 if s == server_socket:
