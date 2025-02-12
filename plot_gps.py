@@ -26,6 +26,7 @@ class gpsImage(Widget):
         self.xy = position
         self.canvas = None
         self.image = None
+        self.value = None
         self.color = color
         self.font = font
         self.points = {}
@@ -238,6 +239,7 @@ class gpsImage(Widget):
 
                 i += 1
             self.image = im
+            self.value = im
         
           except Exception as e:
             logging.exception(e)
@@ -328,13 +330,13 @@ class PlotGPS(plugins.Plugin):
         self.gpsImage = gpsImage(password=self.password, tracks=self.tracks)
         self.gpsImage.processPeers({})
 
-        self.fields = self.options.get('fields', ['fix','lat','lon','alt','speed'])
+        self.fields = self.options.get('fields', ['fix','lat','lon','alt','spd'])
         base_pos = self.options.get('pos', [0,55])
         with ui._lock:
             ui.add_element('plot_gps', self.gpsImage)
             self.ui_elements.append('plot_gps')
             for f in self.fields:
-                fname = "plot_gps_" + f
+                fname =  f
                 pos = (base_pos[0], base_pos[1])
                 label = f
                 if f == 'fix':
@@ -368,7 +370,7 @@ class PlotGPS(plugins.Plugin):
                 ui.set("plot_gps_fix", fix)
 
                 for f in ['lat', 'lon']:
-                    fname = "plot_gps_%s" % f
+                    fname = "%s" % f
                     fval = loc.get(f, None)
                     if fval:
                         ui.set(fname, "%9.4f" % fval)
@@ -382,7 +384,7 @@ class PlotGPS(plugins.Plugin):
                     if units == 'imperial':
                         alt *= 3.28084
                             
-                    ui.set('plot_gps_alt', "%6.2f" % alt)
+                    ui.set('alt', "%6.2f" % alt)
 
                 speed = loc.get('speed', None)
                 if speed:
@@ -394,13 +396,13 @@ class PlotGPS(plugins.Plugin):
                     if units == 'metric':
                         speed = speed * 3.6
                     
-                    ui.set('plot_gps_speed', "%6.2f" % speed)
+                    ui.set('pd', "%6.2f" % speed)
                 else:
-                    ui.set('plot_gps_speed', "---")
+                    ui.set('spd', "---")
             else:
                 logging.info("No location yet: %s" % repr(self.gpsImage.mylocation))
                 self.gpsImage.processPeers(self.agent._peers)
-
+            ui.set('plot_gps', self.gpsImage)
         except Exception as e:
             logging.exception(e)
 
