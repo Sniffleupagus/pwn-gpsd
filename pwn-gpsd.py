@@ -9,6 +9,7 @@ import sys
 import json
 import getopt
 import random
+import copy
 
 import hashlib
 import base64
@@ -635,7 +636,7 @@ if __name__ == "__main__":
             readable, writable, errored = select.select(read_list, write_list, err_list, 1.0)
             logging.debug("Readable: %s" % repr(readable))
             # look up location from pwngrid peers
-            if useSharedLoc and time.time() - last_share_check > 30:
+            if useSharedLoc and time.time() - last_share_check > 10:
                 last_share_check = time.time()
                 # get list of peers
                 peers = pwngrid.peers()
@@ -661,12 +662,12 @@ if __name__ == "__main__":
                 # average locations for "my location"
                 for f in friend_locs:
                     if 'lon' in f:
-                        logging.info("Peer %s\t%s,%s\t%s\t%s" % (f['name'], f['lon'], f['lat'], f['rssi'],  f.get("time", "")))
+                        logging.info("Peer %s\t%s\t%s,%s\t%s\t%s" % (f['name'], f['mode'], f['lon'], f['lat'], f['rssi'],  f.get("time", "")))
                 
                 # store in cache
                 if len(friend_locs):
                     last_tpv = json.loads(messages_archive.get('TPV', "{}"))
-                    new_tpv = friend_locs[0]
+                    new_tpv = copy.deepcopy(friend_locs[0])
                     new_tpv['name'] = "me"
                     new_tpv['lat'] = 0
                     new_tpv['lon'] = 0
@@ -675,9 +676,10 @@ if __name__ == "__main__":
                     count = 0
                     friends = 0
                     for f in friend_locs:
+                        logging.info("Frined mode %s" % (f.get('mode')))
                         if f.get('mode', -2) > new_tpv.get('mode', 0):
                             new_tpv['mode'] = f.get('mode')
-                            logging.debug("Picking mode from %s" % f)
+                            logging.info("Picking mode from %s" % f)
                         rssi = f.get('rssi', -198)
                         mode = f.get('mode', -1)
                         if mode > 1:
@@ -700,7 +702,7 @@ if __name__ == "__main__":
 
                         if new_tpv.get('mode', -1) >= last_tpv.get('mode', 0):
                             # archiving
-                            logging.debug("Updating cache from %d friends %s" % (count, new_tpv))
+                            logging.info("Updating cache from %d friends %s" % (count, new_tpv))
                             messages_archive['TPV'] = json.dumps(new_tpv)
                         if new_tpv.get('mode', -1) >= 2:
                             if not os.path.isdir("/etc/pwnagotchi/pwn_gpsd"):
@@ -851,10 +853,12 @@ if __name__ == "__main__":
                             #raw['PWNCached'] = time.time()    # mark when cached
                             if m_class == 'TPV':
                                 last = json.loads(messages_archive.get(m_class, "{}"))
-                                if last.get('identity'):
+                                if last.get('XXXidentity'):
                                     logging.debug("Keeping remote loc")
                                 else:
-                                    messages_archive[m_class] = raw
+                                    if data.get('mode',0) >= last.get('mode',0) and raw != messages_archive.get(m_class, ""):
+                                        logging.info("updating %s location %s - %s" % (m_class, raw.strip(), last))
+                                        messages_archive[m_class] = raw
                             else:
                                 messages_archive[m_class] = raw
                         else:
@@ -912,6 +916,9 @@ if __name__ == "__main__":
                                            'time': datetime.now().strftime("%Y-%m-%dT%H:%m:%sZ"),
                                            'active': 1,
                                            }
+                                  logging.info("POLL:")
+                                  logging.info("Archive contains: %s" % ",".join(messages_archive.keys()))
+                                  logging.info("Archive contains: %s" % ",".join(messages_archive.keys()))
                                   logging.info("Archive contains: %s" % ",".join(messages_archive.keys()))
                                   if "TPV" in messages_archive:
                                       jdata['tpv'] = [json.loads(messages_archive['TPV'])]
