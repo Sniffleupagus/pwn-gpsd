@@ -379,7 +379,7 @@ class PlotGPS(plugins.Plugin):
                     fix = 'T'
                 else:
                     fix = "%sD" % mode
-                ui.set("plot_gps_fix", fix)
+                ui.set("fix", fix)
 
                 for f in ['lat', 'lon']:
                     fname = "%s" % f
@@ -408,7 +408,7 @@ class PlotGPS(plugins.Plugin):
                     if units == 'metric':
                         speed = speed * 3.6
                     
-                    ui.set('pd', "%6.2f" % speed)
+                    ui.set('spd', "%6.2f" % speed)
                 else:
                     ui.set('spd', "---")
             else:
