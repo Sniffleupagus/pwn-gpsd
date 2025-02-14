@@ -124,6 +124,8 @@ class gpsImage(Widget):
         except Exception as e:
             logging.exception(e)
 
+        logging.info("Track lims: %s" % self.track_lims)
+        logging.info("Img Bounds: %s" % ([minx, miny, maxx, maxy]))
         
         for id,p in peers.items():
             logging.debug("Peer: %s" % p.adv)
@@ -144,19 +146,21 @@ class gpsImage(Widget):
                         maxx = x
                     if not maxy or y > maxy:
                         maxy = y
+        logging.info("Peer Bounds: %s" % ([minx, miny, maxx, maxy]))
 
         if minx != None:
             self.points = points
             # catch zero
             if minx == maxx:
-                minx -= 1
-                maxx += 1
+                minx -= 0.0001
+                maxx += 0.0001
             if miny == maxy:
-                miny -= 1
-                maxy += 1
+                miny -= 0.0001
+                maxy += 0.0001
             addx = (maxx - minx)*0.1
             addy = (maxy - miny)*0.1
             self.bounds = (minx-addx, miny-addy, maxx+addx, maxy+addy)
+            logging.info("New Bounds (%s, %s): %s" % (addx, addy, repr(self.bounds)))
         self.image = None
 
     def toggleFullscreen(self):
@@ -198,14 +202,19 @@ class gpsImage(Widget):
             scalex = w/(self.bounds[2] - self.bounds[0])
             scaley = (h)/(self.bounds[3] - self.bounds[1])
 
-            logging.debug("Scale is %s or %s" % (scalex, scaley))
+            if abs(self.bounds[3] - self.bounds[1]) < 0.001 or (self.bounds[2] - self.bounds[0]) < 0.001:
+                logging.info("Too small %s ,%s.  zooming out" % (scalex, scaley))
+                scalex = canvas.width/0.005
+                scaley = canvas.height/0.005
+
+            logging.info("Scale is %s or %s" % (scalex, scaley))
 
             # choose smaller scale
             if scalex > scaley:
                 scalex = scaley
             else:
                 scaley = scalex
-            logging.debug("Bounds: %s Track bounds %s" % (repr(self.bounds), self.track_lims))
+            logging.info("Bounds: %s Track bounds %s" % (repr(self.bounds), self.track_lims))
 
             if self.fullscreen:
                 scaley *= 0.95
@@ -261,13 +270,12 @@ class gpsImage(Widget):
         
 class PlotGPS(plugins.Plugin):
     __author__ = 'Sniffleupagus'
-    __version__ = '1.0.2'
+    __version__ = '1.0.3'
     __license__ = 'GPL3'
     __description__ = 'An example plugin for pwnagotchi that implements all the available callbacks.'
 
     def __init__(self):
         self.agent = None
-        logging.info("plot_gps plugin created")
         self.password = None
         self.ui_elements = []
         self.tracks = []
@@ -297,27 +305,6 @@ class PlotGPS(plugins.Plugin):
     # called when the plugin is loaded
     def on_loaded(self):
         self.password = self.options.get('password', 'Friendship')
-        pass
-
-    # called before the plugin is unloaded
-    def on_unload(self, ui):
-        with ui._lock:
-            for el in self.ui_elements:
-                try:
-                    ui.remove_element(el)
-                except Exception as e:
-                    logging.exception(e)
-        ui.update(force=True)
-
-    # called when there's internet connectivity
-    def on_internet_available(self, agent):
-        pass
-
-    # called to setup the ui elements
-    def on_ui_setup(self, ui):
-      try:
-        # add custom UI elements
-        self._ui = ui
 
         now = datetime.now()
 
@@ -338,6 +325,25 @@ class PlotGPS(plugins.Plugin):
                         logging.exception("%s: %s" % (l, e))
                 logging.info("Read track %s with %s steps" % (fname, len(track)))
                 self.tracks.append(track)
+
+    # called before the plugin is unloaded
+    def on_unload(self, ui):
+        with ui._lock:
+            for el in self.ui_elements:
+                try:
+                    ui.remove_element(el)
+                except Exception as e:
+                    logging.error(e)
+
+    # called when there's internet connectivity
+    def on_internet_available(self, agent):
+        pass
+
+    # called to setup the ui elements
+    def on_ui_setup(self, ui):
+      try:
+        # add custom UI elements
+        self._ui = ui
 
         self.gpsImage = gpsImage(password=self.password, tracks=self.tracks)
         self.gpsImage.processPeers({})
@@ -485,6 +491,7 @@ class PlotGPS(plugins.Plugin):
 
     # called when an epoch is over (where an epoch is a single loop of the main algorithm)
     def on_epoch(self, agent, epoch, epoch_data):
+      try:
         if self.gpsImage:
 
             now = datetime.now()
@@ -501,18 +508,38 @@ class PlotGPS(plugins.Plugin):
                     logging.info("Reloading track %s" % (fname))
                     with open(fname) as f:
                         lines = [line.rstrip() for line in f]
+
+                    track_lims = [200,200,-200,-200]
+                    self.tracks[0] = []
                     for l in lines:
                         try:
                             l = l.strip(",")
                             l = l.strip('\0')
                             tpv = json.loads(l)
+
+                            # zoom in to today
                             self.tracks[0].append(tpv)
+                            lon = tpv.get('lon')
+                            lat = tpv.get('lat')
+                            if lon < track_lims[0]:
+                                track_lims[0] = lon
+                            if lon > track_lims[2]:
+                                track_lims[2] = lon
+                            if lat < track_lims[1]:
+                                track_lims[1] = lat
+                            if lat > track_lims[3]:
+                                track_lims[3] = lat
                         except Exception as e:
                             logging.exception("%s: %s" % (l, e))
-                    logging.info("Read track with %s steps" % (len(self.tracks[0])))
+                    logging.info("Read track with %s steps %s" % (len(self.tracks[0]), track_lims))
+                    self.gpsImage.track_lims = track_lims
+                    self.gpsImage.tracks = self.tracks
+                    self.gpsImage.image = None
 
             if self.agent: 
                 self.gpsImage.processPeers(self.agent._peers)
+      except Exception as e:
+          logging.exception(e)
 
     # called when a new peer is detected
     def on_peer_detected(self, agent, peer):
