@@ -33,13 +33,21 @@ class gpsImage(Widget):
         self.bounds = None
         self.password = password
         self.mylocation = {}
-        self.tracks = tracks
         self.tracks_updated = 0
         self.current_updated = 0
         self.trackColors = ["#00ff00", "#00ff80", "#00c0c0", "#40c0c0", "#c0ffee", "#c080c0"]
         self.track_lims = [200,200,-200,-200]
         self.fullscreen = None
 
+        self.loadTracks(tracks)
+        logging.info("%s steps in bbox %s" % (len(self.tracks), self.track_lims))
+        self.state = True # i think this makes it touchable
+
+        if not self.font:
+            self.font = ImageFont.truetype("DejaVuSansMono", 12)
+
+    def loadTracks(self, tracks=[]):
+        self.tracks = tracks
         if len(tracks):
             for track in self.tracks:
                 for step in track:
@@ -55,12 +63,6 @@ class gpsImage(Widget):
                         self.track_lims[2] = lon
                 logging.info("%s steps in bbox %s" % (len(track), self.track_lims))
 
-        logging.info("%s steps in bbox %s" % (len(self.tracks), self.track_lims))
-        self.state = True # i think this makes it touchable
-
-        if not self.font:
-            self.font = ImageFont.truetype("DejaVuSansMono", 12)
-        
     def generate_key(self, password=None):
         """Generate a Fernet key from a password"""
         if not password:
@@ -243,7 +245,7 @@ class gpsImage(Widget):
                 lon = tpv.get('lon')
                 x = (tpv.get('lon') - mex) * scalex + w/2
                 y = (tpv.get('lat') - mey) * scaley + h/2
-                dr.point((x,h-y), fill="black")
+                dr.point((x,h-y), fill="white")
                 logging.debug("%s: %s, %s == %s, %s of %s, %s" % (name, lat, lon, x,y, w,h))
                 yoff = -1 if y > h/2 else 9
                 xoff = 1
@@ -532,8 +534,8 @@ class PlotGPS(plugins.Plugin):
                         except Exception as e:
                             logging.exception("%s: %s" % (l, e))
                     logging.info("Read track with %s steps %s" % (len(self.tracks[0]), track_lims))
+                    self.gpsImage.loadTracks(self.tracks)
                     self.gpsImage.track_lims = track_lims
-                    self.gpsImage.tracks = self.tracks
                     self.gpsImage.image = None
 
             if self.agent: 
