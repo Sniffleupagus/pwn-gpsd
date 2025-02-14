@@ -272,7 +272,7 @@ class gpsImage(Widget):
         
 class PlotGPS(plugins.Plugin):
     __author__ = 'Sniffleupagus'
-    __version__ = '1.0.3'
+    __version__ = '1.0.4'
     __license__ = 'GPL3'
     __description__ = 'An example plugin for pwnagotchi that implements all the available callbacks.'
 
