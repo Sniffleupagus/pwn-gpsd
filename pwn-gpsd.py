@@ -671,9 +671,11 @@ if __name__ == "__main__":
                     new_tpv['name'] = "me"
                     new_tpv['lat'] = 0
                     new_tpv['lon'] = 0
+                    new_tpv['alt'] = 0
                     new_tpv['rssi'] = 0
                     new_tpv['mode'] = 0
                     count = 0
+                    altweight = 0
                     friends = 0
                     for f in friend_locs:
                         logging.info("Frined mode %s" % (f.get('mode')))
@@ -687,6 +689,9 @@ if __name__ == "__main__":
                             new_tpv['lat'] = new_tpv.get('lat', 0) + f.get('lat') * weight
                             new_tpv['lon'] = new_tpv.get('lon', 0) + f.get('lon') * weight
                             new_tpv['rssi'] = new_tpv.get('rssi', 0) + rssi * weight
+                            if 'alt' in f:
+                                new_tpv['alt'] = new_tpv.get('alt', 0) + f.get('alt') * weight
+                                altweight += weight
                             count += weight
                             friends+=1
                             logging.info("Running totals: %s %s", new_tpv['lon'], new_tpv['lat'])
@@ -696,6 +701,8 @@ if __name__ == "__main__":
                             new_tpv['lat'] /= count
                             new_tpv['lon'] /= count
                             new_tpv['rssi'] /= count
+                            if altweight > 0:
+                                new_tpv['alt'] /= altweight
                             new_tpv['undivided_count'] = (friends,count)
                             logging.info("DIVIDED: %d, %d %s" % (friends, count, new_tpv))
                             logging.info("->Me %s\t%s,%s\t%s\t%s" % (new_tpv['name'], new_tpv['lon'], new_tpv['lat'], new_tpv['rssi'],  new_tpv.get("time", "")))
