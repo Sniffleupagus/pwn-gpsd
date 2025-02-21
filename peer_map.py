@@ -16,6 +16,9 @@ import base64
 from urllib.parse import urlparse,unquote
 from cryptography.fernet import Fernet
 
+# gpio for buttons to change view
+import RPi.GPIO as GPIO
+
 from PIL import Image, ImageDraw, ImageFont
 
 ADV_FIELD='snorlax'
@@ -93,6 +96,8 @@ class gpsTrack:
         self.name = name
         self.visible = visible
         self.zoomToFit = zoomToFit
+        self.gpio = None
+        self.points = []
 
         if filename:
             self.loadFromFile(filename)
@@ -151,12 +156,12 @@ class gpsTrack:
 
 class peerMapImage(Widget):
     image = None
-    position = None
+    xy = None
     tracks = {}
     
     def __init__(self, position, color='white', bgcolor='black', *, font=None, tracks={}):
         
-        self.position = position
+        self.xy = position
         self.color=color
         self.bgcolor=color
 
@@ -176,17 +181,19 @@ class Peer_Map(plugins.Plugin, Widget):
         self.tracks = {}
         self.peers = {}
         self.image = None
-        self.position = None
+        self.xy = None
         self.t_dir = None
         self.font = None
+
+        self.state = True # this makes it touchable in Touch_UI plugin
         
         self.track_colors=['#00ff00', '#40ff40', '#80FF80', '#c0ffc0', '#00c000', '#40c040', '#80c080', '#008000', '#408040'] # a bunch of greens
         self.peer_colors=['red', 'blue', 'purple', 'orange', 'brown']
 
 
     def updateImage(self):
-        w = self.position[2]-self.position[0]
-        h = self.position[3]-self.position[1]
+        w = self.xy[2]-self.xy[0]
+        h = self.xy[3]-self.xy[1]
         
         image = Image.new('RGBA', (w,h), self.bgcolor)
 
@@ -195,7 +202,7 @@ class Peer_Map(plugins.Plugin, Widget):
         d.rectangle((0,0,w-1,h-1), fill=self.bgcolor, outline='#808080')
 
         # compute lon/lat boundaries
-        if self.me:
+        if self.me and self.me.bounds:
             bounds = self.me.bounds.copy()
             logging.debug("Me: %s" % (self.me.bounds))
         else:
@@ -266,14 +273,14 @@ class Peer_Map(plugins.Plugin, Widget):
                 logging.debug("Plot peer: %s, %s" % (p, tpv))
 
         # draw me
-        if self.me:
+        if self.me and self.me.bounds:
             logging.debug("Me: %s" % (self.me.bounds))
             x = (self.me.bounds[0] - midpoint[0]) * scale + w/2
             y = (self.me.bounds[1] - midpoint[1]) * scale + h/2
             d.ellipse((x-1, h-y-1, x+1, h-y+1), fill=self.peer_colors[0])
             tbox = self.font.getbbox("me")
             xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
-            yoff = int(0 if (y-tbox[3]) > 0 else tbox[3])
+            yoff = int(0 if (y-tbox[3]) > 0 else tbox[3]+2)
 
             logging.debug("Offset: %s %s" % (xoff, yoff))
             d.text((x+xoff,h-(y+yoff)), "me", color=self.color, font=self.font)
@@ -282,8 +289,8 @@ class Peer_Map(plugins.Plugin, Widget):
     def draw(self, canvas, drawer):
         if not self.image:
             self.updateImage()
-        if self.image and self.position:
-            canvas.paste(self.image.convert(canvas.mode), self.position)
+        if self.image and self.xy:
+            canvas.paste(self.image.convert(canvas.mode), self.xy)
 
     def on_ready(self, agent):
         self._agent = agent
@@ -305,7 +312,7 @@ class Peer_Map(plugins.Plugin, Widget):
         tracks_fname_fmt = self.options.get("track_fname_fmt", "pwntrack_%Y%m%d.txt")
         n = 0
         i = 0
-        while i < 30 and n < self.options.get("days", 5):
+        while i < 30 and n < self.options.get("days", 3):
             fname = (now - timedelta(days=i)).strftime(tracks_fname_fmt)
             logging.debug("Looking for %s" % os.path.join(self.t_dir, fname))
             if os.path.isfile(os.path.join(self.t_dir, fname)):
@@ -318,9 +325,26 @@ class Peer_Map(plugins.Plugin, Widget):
         if os.path.isfile(fname):
             self.me = gpsTrack("current", fname, True, True)
             logging.debug("Read my location: %s" % (self.me.bounds))
+
+        self.gpio = self.options.get("gpio", None)
+        if self.gpio:
+            try:
+                GPIO.setmode(GPIO.BCM)
+                for p in self.gpio.get("pins", {}).keys():
+                    GPIO.setup(p, GPIO.FALLING, callback=self.handle_button,
+                               bouncetime=p.get("bounce_ms", 200))
+            except Exception as gpio_e:
+                logging.exception("Loading GPIO: %s" % gpio_e)
       except Exception as e:
           logging.exception(e)
-            
+
+    def handle_button(self, channel):
+        """GPIO button handler. Use channel as index into self.gpio to get config.toml entry for that button"""
+        if self.gpio and channel in self.gpio:
+            logging.info("Clicked %s: %s" % (channel, self.gpio[channel]))
+        else:
+            logging.info("Unexpected click: %s, %s" % (channel, self.gpio))
+
     def generateKey(self):
         if not self.password:
             return None
@@ -346,6 +370,12 @@ class Peer_Map(plugins.Plugin, Widget):
             return default
 
 
+    def on_touch_press(self, ts, ui, ui_element, touch_data):
+        logging.debug("Touch press: %s, %s" % (touch_data, ui_element));
+
+    def on_touch_release(self, ts, ui, ui_element, touch_data):
+        logging.debug("Touch press: %s, %s" % (touch_data, ui_element));
+
     def on_unload(self, ui):
         with ui._lock:
             for el in self.ui_elements:
@@ -358,7 +388,7 @@ class Peer_Map(plugins.Plugin, Widget):
     def on_ui_setup(self, ui):
         self._ui = ui
         try:
-            self.position = self.options.get("pos", [100,30,200,100])
+            self.xy = self.options.get("pos", [100,30,200,100])
             self.color = self.options.get("color", "white"),
             self.bgcolor = self.options.get("bgcolor", "black")
             self.font = ImageFont.truetype(self.options.get('font', "DejaVuSansMono"),
