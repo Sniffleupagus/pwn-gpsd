@@ -120,6 +120,11 @@ class gpsTrack:
             if lon > self.bounds[2]: self.bounds[2] = lon
             if lat > self.bounds[3]: self.bounds[3] = lat
 
+    def lastPoint(self):
+        if not self.points:
+            return None
+        return self.points[-1]
+            
     def loadFromFile(self, filename, ifUpdated=True):
         try:
             if filename and os.path.isfile(filename):
@@ -140,7 +145,7 @@ class gpsTrack:
                                 
                             except Exception as e:
                                 logging.error("- skip line: %s" % e)
-                        logging.info("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
+                        logging.debug("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
                         self.points = tmp.points
                         self.bounds = tmp.bounds
                         del tmp
@@ -155,17 +160,6 @@ class gpsTrack:
 
     def reloadFile(self):
         return self.loadFromFile(self.filename)
-
-class peerMapImage(Widget):
-    image = None
-    xy = None
-    tracks = {}
-    
-    def __init__(self, position, color='white', bgcolor='black', *, font=None, tracks={}):
-        
-        self.xy = position
-        self.color=color
-        self.bgcolor=color
 
 class Peer_Map(plugins.Plugin, Widget):
     __author__ = 'Sniffleupagus'
@@ -235,7 +229,7 @@ class Peer_Map(plugins.Plugin, Widget):
         bounds[1] -= 0.0001
         sh = bounds[3] - bounds[1]
 
-        logging.info("Final bounds: %s" % (bounds))
+        logging.debug("Final bounds: %s" % (bounds))
 
         scale = min(w/sw, h/sh)    # pixels per map unit
         midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
@@ -369,8 +363,8 @@ class Peer_Map(plugins.Plugin, Widget):
                 except Exception as e:
                     logging.warn("Not JSON: %s, %s" % (e, decrypted_message))
                     return decrypted_message
-            except Exception as e:
-                logging.error("Decrypt failed: %s" % (e))
+            except Exception as e2:
+                logging.error("Decrypt failed: %s" % (e2))
                 return default
         else:
             return default
@@ -405,6 +399,16 @@ class Peer_Map(plugins.Plugin, Widget):
             with ui._lock:
                 ui.add_element('peer_map', self)
                 self.ui_elements.append('peer_map')
+                base_pos = self.options.get('pos', [0,55])
+                for field in self.options.get('fields', ['fix', 'lon', 'lat', 'alt', 'speed']):
+                    fname = "pm_%s" % field
+                    pos = (base_pos[0], base_pos[1])
+                    ui.add_element(fname, LabeledValue(color="black", label=field, value='---.----',
+                                                       position=pos,
+                                                       label_font=fonts.BoldSmall, text_font=fonts.Small),
+                               )
+                    self.ui_elements.append(fname)
+                    base_pos[1] += 10
         except Exception as e:
             logging.exception(e)
 
@@ -417,6 +421,7 @@ class Peer_Map(plugins.Plugin, Widget):
         for id, p in agent._peers.items():
             adv = p.adv
             if ADV_FIELD in adv:
+                logging.debug("Decrypting %s: %s" % (adv.get('name','unknown'), adv))
                 tpv = self.decrypt_data(adv.get(ADV_FIELD))
                 if tpv and tpv != self.peers.get(id, ""):
                     if isinstance(tpv, str):
@@ -454,9 +459,73 @@ class Peer_Map(plugins.Plugin, Widget):
         if self.me and self.me.reloadFile():
             logging.debug("Me updated: %s" % (self.me.bounds))
             redrawImage = True
+            tpv = self.me.lastPoint()
+            fields = self.options.get('fields', ['fix', 'lon', 'lat', 'alt', 'speed'])
+            units = self.options.get('units', 'metric')
+            if 'fix' in fields:
+                mode = tpv.get('mode', 0)
+                if mode == 0:
+                    fix = '-'
+                elif mode == 1:
+                    fix = 'T'
+                else:
+                    fix = "%sD" % mode
+
+                if 'undivided_count' in tpv:
+                    fix += "-%d" % (int(100 - (tpv['undivided_count'][1]/tpv['undivided_count'][0])/2))
+
+                ui.set('pm_fix', fix)
+
+            for f in ['lon', 'lat']:
+                if f in fields:
+                    fname = "pm_%s" % f
+                    fval = tpv.get(f, None)
+                    if fval:
+                        ui.set(fname, "%9.4f" % fval)
+
+            if 'alt' in fields:
+                alt = tpv.get('alt', tpv.get('altMSL', None))
+                if alt:
+                    if units in ['feet', 'imperial']:
+                        alt *= 3.28084
+                    ui.set('pm_alt', "%6.2f" % alt)
+                else:
+                    ui.set('pm_alt', "---.--")
+
+            if 'speed' in fields:
+                speed = tpv.get('speed', None)
+                if speed:
+                    if units in ['feet', 'imperial']:
+                        speed *= 2.237
+                    elif units == 'kmh':
+                        speed *= 3.6
+
+                    ui.set('pm_speed', "%6.2f" % speed)
+                else:
+                    ui.set('pm_speed', "---.--")
 
         if redrawImage:
             self.updateImage()
 
 
         
+    def on_handshake(self, agent, filename, access_point, client_station):
+        try:
+            if self.me:
+                tpv = self.me.lastPoint()
+            elif os.path.isfile("/etc/pwnagotchi/pwn_gpsd/current.txt"):
+                with open("/etc/pwnagotchi/pwn_gpsd/current.txt", 'r') as f:
+                    tpv = json.load(f)
+            else:
+                tpv = {}
+            if 'lat' in tpv:
+                gps_filename = filename.replace(".pcap", ".gps.json")
+                logging.info(f"saving GPS to {gps_filename} ({tpv})")
+                with open(gps_filename, "w+t") as fp:
+                    json.dump(tpv, fp)
+                    fp.write(",\n")
+            else:
+                logging.info("not saving GPS. Couldn't find location.")
+        except Exception as err:
+            logging.exception("[pwn-gpsd handshake] %s" % repr(err))
+
