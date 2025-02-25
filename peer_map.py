@@ -181,6 +181,9 @@ class Peer_Map(plugins.Plugin, Widget):
         self.t_dir = None
         self.font = None
         self.touch_info = {}
+        self.zoom_multiplier = 1
+        self.gpio = None
+        self.window_size = None
 
         self.state = True # this makes it touchable in Touch_UI plugin
         
@@ -189,6 +192,8 @@ class Peer_Map(plugins.Plugin, Widget):
 
 
     def updateImage(self):
+        if not self._ui:
+            return
         w = self.xy[2]-self.xy[0]
         h = self.xy[3]-self.xy[1]
         
@@ -231,7 +236,7 @@ class Peer_Map(plugins.Plugin, Widget):
 
         logging.debug("Final bounds: %s" % (bounds))
 
-        scale = min(w/sw, h/sh)    # pixels per map unit
+        scale = min(w/sw, h/sh) * self.zoom_multiplier    # pixels per map unit
         midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
         map_bbox = [midpoint[0] - (w/2)/scale, midpoint[1] - (h/2)/scale,
                     midpoint[0] + (w/2)/scale, midpoint[1] + (h/2)/scale]
@@ -334,13 +339,53 @@ class Peer_Map(plugins.Plugin, Widget):
         if self.gpio:
             try:
                 GPIO.setmode(GPIO.BCM)
-                for p in self.gpio.get("pins", {}).keys():
-                    GPIO.setup(p, GPIO.FALLING, callback=self.handle_button,
-                               bouncetime=p.get("bounce_ms", 200))
+                for action in ['zoom_in', 'zoom_out']:
+                    if action in self.gpio:
+                        if action == 'zoom_in':
+                            cb = self.zoom_in
+                        elif action == 'zoom_out':
+                            cb = self.zoom_out
+                        else:
+                            cb = self.handle_button
+                        p = self.gpio[action]
+                        logging.info("Setting up %s -> %s" % (action, p))
+                        GPIO.setup(p, GPIO.IN, GPIO.PUD_UP)
+                        logging.info("Setting event %s -> %s" % (action, p))
+                        GPIO.add_event_detect(p, GPIO.FALLING, callback=cb,
+                                   bouncetime=800)
+                        logging.info("Set up %s on pin %d" % (action, p))
             except Exception as gpio_e:
                 logging.exception("Loading GPIO: %s" % gpio_e)
       except Exception as e:
           logging.exception(e)
+
+    def zoom_in(self, channel):
+      try:
+        if not self._ui:
+            return
+    
+        if self.window_size:
+            self.zoom_multiplier *= 2
+        else:
+            self.window_size = self.xy.copy()
+            self.xy = (5, 5, self._ui.width()-10, self._ui.height()-10)
+            self.image = None
+      except Exception as e:
+          logging.exception("Zoom in: %s: %s" % (channel, e))
+
+    def zoom_out(self, channel):
+      try:
+        if not self._ui:
+            return
+
+        if self.zoom_multiplier >1.5:
+            self.zoom_multiplier /= 2
+        elif self.window_size:
+            self.xy = self.window_size.copy()
+            self.window_size = None
+            self.image = None    
+      except Exception as e:
+          logging.exception("Zoom in: %s: %s" % (channel, e))
 
     def handle_button(self, channel):
         """GPIO button handler. Use channel as index into self.gpio to get config.toml entry for that button"""
@@ -390,6 +435,16 @@ class Peer_Map(plugins.Plugin, Widget):
                     ui.remove_element(el)
                 except Exception as e:
                     logging.error("Unable to remove %s: %s" % (el, e))
+        if self.gpio:
+            logging.info("GPIO: %s" % (self.gpio))
+            for action,pin in self.gpio.items():
+                try:
+                    logging.info("removing event from %s" % (pin))
+                    GPIO.remove_event_detect(pin)
+                    GPIO.cleanup(pin)
+                except Exception as e:
+                    logging.exception("GPIO cleanup %s: %s" % (pin, e))
+
 
     def on_ui_setup(self, ui):
         self._ui = ui
@@ -532,4 +587,20 @@ class Peer_Map(plugins.Plugin, Widget):
                 logging.info("not saving GPS. Couldn't find location.")
         except Exception as err:
             logging.exception("[pwn-gpsd handshake] %s" % repr(err))
+
+    def on_webhook(self, path, request):
+        try:
+            method = request.method
+            path = request.path
+            if "/zoom_in" in path:
+                self.zoom_in("web")
+                return "OK", 204
+            elif "/zoom_out" in path:
+                self.zoom_out("web")
+                return "OK", 204
+            else:
+                return "<html><body>PeerMap! %s:<p>Request <a href=\"/plugins/peer_map/zoom_in\">/plugins/peer_map/zoom_in</a> <a href=\"/plugins/peer_map/zoom_out\">/plugins/peer_map/zoom_out</a></body></html>" % (path)
+        except Exception as e:
+            logging.exception(e)
+            return "<html><body>Error! %s</body></html>" % (e)
 
