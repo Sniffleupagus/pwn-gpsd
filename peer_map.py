@@ -51,8 +51,10 @@ def checkBounds(overall, new):
                 ret[3] = new['lat'] if new['lat'] > overall[3] else overall[3]
             except Exception as e:
                 logging.info("overall: %s, new: %s: %s" % (overall,new,e))
+        else:
+            logging.debug("No lat or lon. skipping: %s" % new)
     else:
-        logging.info("Unexpected size: overall %d, new %d (not 2 or 4) %s" % (len(overall), len(new), repr(new)))
+        logging.info("Unable to process: Overall %d elements. New %d elements:  %s" % (len(overall), len(new), repr(new)))
 
     return ret
 
@@ -138,7 +140,7 @@ class gpsTrack:
                                 
                             except Exception as e:
                                 logging.error("- skip line: %s" % e)
-                        logging.debug("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
+                        logging.info("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
                         self.points = tmp.points
                         self.bounds = tmp.bounds
                         del tmp
@@ -184,6 +186,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.xy = None
         self.t_dir = None
         self.font = None
+        self.touch_info = {}
 
         self.state = True # this makes it touchable in Touch_UI plugin
         
@@ -216,7 +219,10 @@ class Peer_Map(plugins.Plugin, Widget):
         pbounds = [180,90, -180,-90]
         logging.debug("Unpacking peers: %s" % (repr(self.peers)))
         for p,tpv in self.peers.items():
-            pbounds = checkBounds(pbounds, tpv)
+            try:
+                pbounds = checkBounds(pbounds, json.loads(tpv))
+            except Exception as e:
+                logging.exception(e)
         logging.debug("Peer bounds: %s" % (pbounds))
         bounds = checkBounds(bounds, pbounds)
 
@@ -229,7 +235,7 @@ class Peer_Map(plugins.Plugin, Widget):
         bounds[1] -= 0.0001
         sh = bounds[3] - bounds[1]
 
-        logging.debug("Final bounds: %s" % (bounds))
+        logging.info("Final bounds: %s" % (bounds))
 
         scale = min(w/sw, h/sh)    # pixels per map unit
         midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
@@ -369,6 +375,8 @@ class Peer_Map(plugins.Plugin, Widget):
         else:
             return default
 
+    def current_touch_status(self):
+        return self.touch_info.get('status', {'pressed':False, 'last_press':None})
 
     def on_touch_press(self, ts, ui, ui_element, touch_data):
         logging.debug("Touch press: %s, %s" % (touch_data, ui_element));
