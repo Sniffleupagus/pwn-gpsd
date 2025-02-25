@@ -145,7 +145,7 @@ class gpsTrack:
                                 
                             except Exception as e:
                                 logging.error("- skip line: %s" % e)
-                        logging.debug("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
+                        logging.info("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
                         self.points = tmp.points
                         self.bounds = tmp.bounds
                         del tmp
@@ -187,7 +187,7 @@ class Peer_Map(plugins.Plugin, Widget):
 
         self.state = True # this makes it touchable in Touch_UI plugin
         
-        self.track_colors=['#00ff00', '#40ff40', '#80FF80', '#c0ffc0', '#00c000', '#40c040', '#80c080', '#008000', '#408040'] # a bunch of greens
+        self.track_colors=['#00ff00', '#ffff00', '#ff00ff', '#00ffff', '#40ff40', '#ff8080', '#c0c0ff', '#40c080', '#80c040', '#80c080', '#800000', '#404080'] # a bunch of colors
         self.peer_colors=['red', 'blue', 'purple', 'orange', 'brown']
 
 
