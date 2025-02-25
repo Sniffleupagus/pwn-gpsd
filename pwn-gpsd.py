@@ -648,6 +648,7 @@ if __name__ == "__main__":
                         pos = gpsd.decrypt_data(adv.get('snorlax', {}))
                     except Exception as e:
                         logging.info("Failed %s\n\t%s\n\t%s" % (e, adv.get('name'), adv))
+                        pos = None
                     if pos:
                         logging.debug("Peer %s pos: %s" % (adv.get('name', ""), pos))
                         p_loc = json.loads(pos)
