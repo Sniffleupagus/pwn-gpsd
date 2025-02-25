@@ -290,7 +290,11 @@ class Peer_Map(plugins.Plugin, Widget):
         if not self.image:
             self.updateImage()
         if self.image and self.xy:
-            canvas.paste(self.image.convert(canvas.mode), self.xy)
+            try:
+                canvas.paste(self.image.convert(canvas.mode), self.xy)
+            except Exception as e:
+                logging.error(e)
+                self.image = None
 
     def on_ready(self, agent):
         self._agent = agent
