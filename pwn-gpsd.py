@@ -678,7 +678,7 @@ if __name__ == "__main__":
                     altweight = 0
                     friends = 0
                     for f in friend_locs:
-                        logging.info("Frined mode %s" % (f.get('mode')))
+                        logging.info("Friend mode %s" % (f.get('mode')))
                         if f.get('mode', -2) > new_tpv.get('mode', 0):
                             new_tpv['mode'] = f.get('mode')
                             logging.info("Picking mode from %s" % f)
@@ -709,7 +709,7 @@ if __name__ == "__main__":
 
                         if new_tpv.get('mode', -1) >= last_tpv.get('mode', 0):
                             # archiving
-                            logging.info("Updating cache from %d friends %s" % (count, new_tpv))
+                            logging.info("Updating cache from %d friends %s" % (friends, new_tpv))
                             messages_archive['TPV'] = json.dumps(new_tpv)
                         if new_tpv.get('mode', -1) >= 2:
                             if not os.path.isdir("/etc/pwnagotchi/pwn_gpsd"):
