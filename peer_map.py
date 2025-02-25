@@ -192,6 +192,7 @@ class Peer_Map(plugins.Plugin, Widget):
 
 
     def updateImage(self):
+      try:
         if not self._ui:
             return
         w = self.xy[2]-self.xy[0]
@@ -238,6 +239,9 @@ class Peer_Map(plugins.Plugin, Widget):
 
         scale = min(w/sw, h/sh) * self.zoom_multiplier    # pixels per map unit
         midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
+        if self.zoom_multiplier > 1 and self.me.bounds:
+            midpoint = [self.me.bounds[0], self.me.bounds[1]]
+
         map_bbox = [midpoint[0] - (w/2)/scale, midpoint[1] - (h/2)/scale,
                     midpoint[0] + (w/2)/scale, midpoint[1] + (h/2)/scale]
             
@@ -290,7 +294,9 @@ class Peer_Map(plugins.Plugin, Widget):
             logging.debug("Offset: %s %s" % (xoff, yoff))
             d.text((x+xoff,h-(y+yoff)), "me", color=self.color, font=self.font)
         self.image = image
-            
+      except Exception as e:
+          logging.exception(e)
+
     def draw(self, canvas, drawer):
         if not self.image:
             self.updateImage()
