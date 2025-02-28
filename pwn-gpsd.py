@@ -719,6 +719,13 @@ if __name__ == "__main__":
                                 with open("/etc/pwnagotchi/pwn_gpsd/current.txt", "w") as f:
                                     logging.debug("CURRENT: %s" % new_tpv)
                                     f.write(json.dumps(new_tpv))
+                                now = datetime.now()
+                                fname = now.strftime("/etc/pwnagotchi/pwn_gpsd/peertrack_%Y%m%d.txt")
+                                if not os.path.isdir(os.path.dirname(fname)):
+                                    os.mkdir(os.path.dirname(fname))
+                                with open(fname, "a+") as f:
+                                    f.write(json.dumps(new_tpv) + "\n")
+
                             except Exception as e:
                                 logging.exception("Logging %s: %s" % (new_tpv, e))
 
