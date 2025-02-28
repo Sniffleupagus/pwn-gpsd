@@ -177,6 +177,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.tracks = {}
         self.peers = {}
         self.image = None
+        self.value = None
         self.xy = None
         self.t_dir = None
         self.font = None
@@ -274,12 +275,14 @@ class Peer_Map(plugins.Plugin, Widget):
             if 'lat' in data and 'lon' in data:
                 x = (data['lon'] - midpoint[0]) * scale + w/2
                 y = (data['lat'] - midpoint[1]) * scale + h/2
-                d.ellipse((x-1, h-y-1, x+1, h-y+1), fill=self.peer_colors[i % len(self.peer_colors)])
+                pc = self.peer_colors[i % len(self.peer_colors)]
+                d.ellipse((x-1, h-y-1, x+1, h-y+1), fill=pc)
                 tbox = self.font.getbbox(data.get('name', "XXX"))
                 xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
                 yoff = int(0 if (y-tbox[3]) > 0 else tbox[3])
-                d.text((x+xoff,h-(y+yoff)), data.get('name', "XXX"), color=self.color, font=self.font)
+                d.text((x+xoff,h-(y+yoff)), data.get('name', "XXX"), fill=pc, font=self.font)
                 logging.debug("Plot peer: %s, %s" % (p, tpv))
+                i += 1
 
         # draw me
         if self.me and self.me.bounds:
@@ -291,8 +294,8 @@ class Peer_Map(plugins.Plugin, Widget):
             xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
             yoff = int(0 if (y-tbox[3]) > 0 else tbox[3]+2)
 
-            logging.debug("Offset: %s %s" % (xoff, yoff))
-            d.text((x+xoff,h-(y+yoff)), "me", color=self.color, font=self.font)
+            logging.debug("Offset: %s %s = %s" % (xoff, yoff, self.color))
+            d.text((x+xoff,h-(y+yoff)), "me", fill=self.color, font=self.font)
         self.image = image
       except Exception as e:
           logging.exception(e)
@@ -325,6 +328,18 @@ class Peer_Map(plugins.Plugin, Widget):
         now = datetime.now()
         self.t_dir = self.options.get("track_dir", "/etc/pwnagotchi/pwn_gpsd")
         tracks_fname_fmt = self.options.get("track_fname_fmt", "pwntrack_%Y%m%d.txt")
+        n = 0
+        i = 0
+        while i < 30 and n < self.options.get("days", 3):
+            fname = (now - timedelta(days=i)).strftime(tracks_fname_fmt)
+            logging.debug("Looking for %s" % os.path.join(self.t_dir, fname))
+            if os.path.isfile(os.path.join(self.t_dir, fname)):
+                t = gpsTrack(fname, os.path.join(self.t_dir, fname), True, True)
+                self.tracks[fname] = t
+                n += 1
+            i += 1
+
+        tracks_fname_fmt = self.options.get("track_fname_fmt", "peertrack_%Y%m%d.txt")
         n = 0
         i = 0
         while i < 30 and n < self.options.get("days", 3):
@@ -374,8 +389,9 @@ class Peer_Map(plugins.Plugin, Widget):
             self.zoom_multiplier *= 2
         else:
             self.window_size = self.xy.copy()
-            self.xy = (5, 5, self._ui.width()-10, self._ui.height()-10)
-            self.image = None
+            border = self.options.get('border', 5)
+            self.xy = (border, border, self._ui.width()-border, self._ui.height()-border)
+        self.image = None
       except Exception as e:
           logging.exception("Zoom in: %s: %s" % (channel, e))
 
@@ -389,7 +405,7 @@ class Peer_Map(plugins.Plugin, Widget):
         elif self.window_size:
             self.xy = self.window_size.copy()
             self.window_size = None
-            self.image = None    
+        self.image = None
       except Exception as e:
           logging.exception("Zoom in: %s: %s" % (channel, e))
 
@@ -431,7 +447,15 @@ class Peer_Map(plugins.Plugin, Widget):
         logging.debug("Touch press: %s, %s" % (touch_data, ui_element));
 
     def on_touch_release(self, ts, ui, ui_element, touch_data):
-        logging.debug("Touch press: %s, %s" % (touch_data, ui_element));
+        logging.info("Touch press: %s, %s" % (touch_data, ui_element));
+        if not self.window_size:
+            self.zoom_in("touch")
+        elif touch_data['point'][0] > ui.width()/2:
+            self.zoom_in("touch")
+        else:
+            self.zoom_out("touch")
+
+        ui.set("peer_map", time.time())
 
     def on_unload(self, ui):
         with ui._lock:
@@ -456,7 +480,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self._ui = ui
         try:
             self.xy = self.options.get("pos", [100,30,200,100])
-            self.color = self.options.get("color", "white"),
+            self.color = self.options.get("color", "white")
             self.bgcolor = self.options.get("bgcolor", "black")
             self.font = ImageFont.truetype(self.options.get('font', "DejaVuSansMono"),
                                            self.options.get('font_size', 10))
