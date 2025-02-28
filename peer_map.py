@@ -16,6 +16,8 @@ import base64
 from urllib.parse import urlparse,unquote
 from cryptography.fernet import Fernet
 
+from math import radians, sin, cos, acos
+
 # gpio for buttons to change view
 import RPi.GPIO as GPIO
 
@@ -191,6 +193,17 @@ class Peer_Map(plugins.Plugin, Widget):
         self.track_colors=['#00ff00', '#ffff00', '#ff00ff', '#00ffff', '#40ff40', '#ff8080', '#c0c0ff', '#40c080', '#80c040', '#80c080', '#800000', '#404080'] # a bunch of colors
         self.peer_colors=['red', 'blue', 'purple', 'orange', 'brown']
 
+    def haversine_distance(self, ln1, lt1, ln2, lt2):
+        from math import radians, sin, cos, acos
+
+        mlat = radians(float(lt1))
+        mlon = radians(float(ln1))
+        plat = radians(float(lt2))
+        plon = radians(float(ln2))
+
+        dist = 6371.01 * acos(sin(mlat)*sin(plat) + cos(mlat)*cos(plat)*cos(mlon - plon))
+        logging.info("The distance is %.2fkm." % dist)
+        return dist *1000
 
     def updateImage(self):
       try:
@@ -245,7 +258,7 @@ class Peer_Map(plugins.Plugin, Widget):
 
         map_bbox = [midpoint[0] - (w/2)/scale, midpoint[1] - (h/2)/scale,
                     midpoint[0] + (w/2)/scale, midpoint[1] + (h/2)/scale]
-            
+
         # draw tracks
         i = 0
         for f in sorted(self.tracks):
@@ -296,6 +309,33 @@ class Peer_Map(plugins.Plugin, Widget):
 
             logging.debug("Offset: %s %s = %s" % (xoff, yoff, self.color))
             d.text((x+xoff,h-(y+yoff)), "me", fill=self.color, font=self.font)
+
+        # draw legend and grid on full screen
+        if self.window_size:
+            try:
+                dist = self.haversine_distance(map_bbox[0], 0, map_bbox[2], 0)
+                units = self.options.get('units', 'metric').lower()
+                logging.info("Distance is: %s. Want units %s" % (dist, units))
+                if units in ['feet', 'imperial']:
+                    dist *= 3.28084 # meters to feet
+                    if dist > 5280: # show miles if far
+                        dist_text = "width = %0.2f miles, %0.5e degrees" % (dist/5280.0, map_bbox[2]-map_bbox[0])
+                        dist_text += "\nheight = %0.2f miles, %0.5e degrees" % (dist * h / w / 5280.0, map_bbox[3]-map_bbox[1])
+                    else:
+                        dist_text="width = %0.2f feet, %0.5e degrees" % (dist, map_bbox[2]-map_bbox[0])
+                        dist_text += "\nheight = %0.2f feet, %0.5e" % (dist * h / w, map_bbox[3]-map_bbox[1])
+                else:
+                    if dist > 1000: # km or meters
+                        dist_text = "width = %0.2f km, %0.5e degrees" % (dist/1000.0, map_bbox[2]-map_bbox[0])
+                        dist_text += "\nheight = %0.2f km, %0.5e" % (dist * h / w / 1000.0, map_bbox[3]-map_bbox[1])
+                    else:
+                        dist_text = "width = %0.2f m, %0.5e degrees" % (dist, map_bbox[2]-map_bbox[0])
+                        dist_text += "\nheight = %0.2f m, %0.5e degrees" % (dist * h / w, map_bbox[3]-map_bbox[1])
+                d.text((15,15), "%s\nzoom = %s" % (dist_text, self.zoom_multiplier), fill=self.color, font=self.font)
+                logging.info("Window %s" % dist_text)
+            except Exception as e:
+                logging.exception(e)
+
         self.image = image
       except Exception as e:
           logging.exception(e)
@@ -400,7 +440,7 @@ class Peer_Map(plugins.Plugin, Widget):
         if not self._ui:
             return
 
-        if self.zoom_multiplier >1.5:
+        if self.zoom_multiplier >1.0:
             self.zoom_multiplier /= 2
         elif self.window_size:
             self.xy = self.window_size.copy()
@@ -628,8 +668,36 @@ class Peer_Map(plugins.Plugin, Widget):
             elif "/zoom_out" in path:
                 self.zoom_out("web")
                 return "OK", 204
+            elif "/toggle_fs" in path:
+                if self.window_size:
+                    self.xy = self.window_size.copy()
+                    self.window_size = None
+                else:
+                    self.window_size = self.xy.copy()                    
+                    border = self.options.get('border', 5)
+                    self.xy = (border, border, self._ui.width()-border, self._ui.height()-border)
+                self.image = None
+                return "OK", 204
+            elif "/set_zoom" in path:
+                try:
+                    logging.info("Args: %s" % (repr(request.args)))
+                    zf = int(request.args.get('zf', self.zoom_multiplier))
+                    if zf < 1:
+                        zf = 1       
+                    if zf != self.zoom_multiplier:
+                        self.zoom_multiplier = zf
+                        self.image = None
+                    return "OK", 204
+                
+                except Exception as e:
+                    logging.exception(e)
+                    return "<html><body>%s</body></html>" % (e)
             else:
-                return "<html><body>PeerMap! %s:<p>Request <a href=\"/plugins/peer_map/zoom_in\">/plugins/peer_map/zoom_in</a> <a href=\"/plugins/peer_map/zoom_out\">/plugins/peer_map/zoom_out</a></body></html>" % (path)
+                return("<html><body>PeerMap! %s:<p>Request " % (path)
+                       + "<a href=\"/plugins/peer_map/zoom_in\">/plugins/peer_map/zoom_in</a>"
+                       + " <a href=\"/plugins/peer_map/zoom_out\">/plugins/peer_map/zoom_out</a>"
+                       + " <a href=\"/plugins/peer_map/toggle_fs\">/plugins/peer_map/toggle_fs</a>"
+                       + "</body></html>")
         except Exception as e:
             logging.exception(e)
             return "<html><body>Error! %s</body></html>" % (e)
