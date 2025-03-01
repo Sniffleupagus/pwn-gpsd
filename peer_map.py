@@ -13,7 +13,12 @@ import glob
 from datetime import datetime,timedelta
 import time
 #import json
-import orjson as json
+try:
+    import orjson as json
+except Exception as e:
+    logging.info("Install orjson with pip to get better json performance")
+    import json
+
 import random
 import hashlib
 import base64
@@ -224,18 +229,22 @@ class Peer_Map(plugins.Plugin, Widget):
             logging.info("No rename")
 
         while self.keep_going:
-            self.check_tracks_and_peers()
-            if self.trigger_redraw.wait(timeout=1):
-                self.trigger_redraw.clear()
+            try:
+                self.check_tracks_and_peers()
+                if self.trigger_redraw.is_set():
+                    self.trigger_redraw.clear()
 
-                if self.redrawImage:
-                    logging.debug("Redrawing")
-                    self.redrawImage = False
-                    self.updateImage()
+                    if self.redrawImage:
+                        logging.debug("Redrawing")
+                        self.redrawImage = False
+                        self.updateImage()
+                    else:
+                        time.sleep(1)
                 else:
+                    logging.debug("timeout")
                     time.sleep(1)
-            else:
-                logging.debug("timeout")
+            except Exception as e:
+                logging.exception(e)
         logging.info("peer_map out")
 
     def updateImage(self):
@@ -258,7 +267,7 @@ class Peer_Map(plugins.Plugin, Widget):
             bounds = self.me.bounds.copy()
             logging.debug("Me: %s" % (self.me.bounds))
         else:
-            bounds = [180,90,-180,-90]
+            bounds = [180,90,-180,-90]   # the whole world
         for f in sorted(self.tracks):
             t = self.tracks[f]
             if t.visible and t.zoomToFit:
@@ -267,9 +276,10 @@ class Peer_Map(plugins.Plugin, Widget):
 
         pbounds = [180,90, -180,-90]
         logging.debug("Unpacking peers: %s" % (repr(self.peers)))
-        for p,tpv in self.peers.items():
+        for p,info in self.peers.items():
             try:
-                pbounds = checkBounds(pbounds, json.loads(tpv))
+                tpv = info['tpv']
+                pbounds = checkBounds(pbounds, tpv)
             except Exception as e:
                 logging.exception(e)
         logging.debug("Peer bounds: %s" % (pbounds))
@@ -314,17 +324,8 @@ class Peer_Map(plugins.Plugin, Widget):
         logging.debug("Drew tracks")
         # draw peers
         i = 1
-        for p, tpv in self.peers.items():
-            logging.debug("PEER info tpv: %s, %s" % (type(tpv), tpv))
-            if isinstance(tpv, str) or isinstance(tpv, bytes):
-                try:
-                    data = json.loads(tpv)
-                except Exception as e:
-                    logging.exception("Error reading json: %s\n%s" % (e, repr(tpv)))
-                    data = {}
-            else:
-                logging.info("TPV is %s: %s" % (type(tpv).__name__, repr(tpv)))
-                data = {}
+        for p, info in self.peers.items():
+            data = info.get('tpv', {})
                     
             if 'lat' in data and 'lon' in data:
                 x = (data['lon'] - midpoint[0]) * scale + w/2
@@ -335,7 +336,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
                 yoff = int(0 if (y-tbox[3]) > 0 else tbox[3])
                 d.text((x+xoff,h-(y+yoff)), data.get('name', "XXX"), fill=pc, font=self.font)
-                logging.debug("Plot peer: %s, %s" % (p, tpv))
+                logging.debug("Plot peer: %s, %s" % (p, data))
                 i += 1
 
         # draw me
@@ -536,6 +537,7 @@ class Peer_Map(plugins.Plugin, Widget):
             try:
                 decrypted_message = self.fernet.decrypt(encrypted_message.encode()).decode()
                 try:
+                    logging.info("Decrypted (%s): %s" % (type(decrypted_message).__name__, decrypted_message))
                     return json.loads(decrypted_message)
                 except Exception as e:
                     logging.warn("Not JSON: %s, %s" % (e, decrypted_message))
@@ -624,21 +626,26 @@ class Peer_Map(plugins.Plugin, Widget):
             adv = p.adv
             if ADV_FIELD in adv:
                 logging.debug("Decrypting %s: %s" % (adv.get('name','unknown'), adv))
-                tpv = self.decrypt_data(adv.get(ADV_FIELD))
-                if tpv and tpv != self.peers.get(id, ""):
-                    if isinstance(tpv, str) or isinstance(tpv, bytes):
-                        try:
-                            data = json.loads(tpv)
-                        except Exception as e:
-                            logging.info("Error reading json: %s" % e)
-                    if 'lat' in tpv and 'lon' in tpv:
-                        logging.debug("Saving PEER %s: %s" % (p.adv.get('name', None), data))
-                        data['name'] = p.adv.get('name', "peer")
-                        new_data = json.dumps(data)
-                        if new_data != self.peers.get(id, ""):
-                            logging.debug("Saving peer data %s: %s" % (type(new_data).__name__, new_data))
-                            self.peers[id] = new_data
-                            ret = True
+                e_msg = adv.get(ADV_FIELD, None)
+                info = self.peers.get(id, {})  # stored peer data
+                if e_msg and e_msg != info.get('enc', None):  # only process if message changed
+                    try:
+                        raw = self.decrypt_data(e_msg)
+                        if raw and raw != info.get('raw', ''):  # double check
+                            try:
+                                data = json.loads(raw)  # read new peer info into a dict
+                                if 'lat' in data and 'lon' in data:
+                                    logging.debug("Saving PEER %s: %s" % (p.adv.get('name', None), data))
+                                    name = p.adv.get('name', "peer")
+                                    data['name'] = name
+                                    self.peers[id] = {'enc': e_msg, 'raw': raw, 'tpv': data, 'name': name }
+                                    ret = True
+                            except Exception as e:
+                                logging.error("JSON.loads(%s) %s" % (raw, e))
+                        else:
+                            logging.warn("New encrypt, same raw")
+                    except Exception as e:
+                        logging.exception(e)
         return ret
       except Exception as e:
           logging.exception(e)
