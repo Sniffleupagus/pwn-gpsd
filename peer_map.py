@@ -235,10 +235,10 @@ class Peer_Map(plugins.Plugin, Widget):
                     self.trigger_redraw.clear()
 
                     if self.redrawImage:
-                        logging.info("Redrawing image")
+                        logging.debug("Redrawing image")
                         self.redrawImage = False
                         self.updateImage()
-                        logging.info("Redrawing complete")
+                        logging.debug("Redrawing complete")
                     else:
                         self.trigger_redraw.wait(timeout=1)
                 else:
@@ -401,7 +401,7 @@ class Peer_Map(plugins.Plugin, Widget):
             except Exception as e:
                 logging.error("Paste: %s: %s" % (self.xy, e))
                 self.image = self.image.resize((self.xy[2]-self.xy[0], self.xy[3]-self.xy[1]))
-                canvas.paste(self.image.convert(canvas.mode), self.xy)
+                canvas.paste(self.image.convertcanvas.mode), self.xy)
                 self.redrawImage = True
                 self.trigger_redraw.set()
 
@@ -540,7 +540,7 @@ class Peer_Map(plugins.Plugin, Widget):
             try:
                 decrypted_message = self.fernet.decrypt(encrypted_message.encode()).decode()
                 try:
-                    logging.info("Decrypted (%s): %s" % (type(decrypted_message).__name__, decrypted_message))
+                    logging.debug("Decrypted (%s): %s" % (type(decrypted_message).__name__, decrypted_message))
                     return json.loads(decrypted_message)
                 except Exception as e:
                     logging.warn("Not JSON: %s, %s" % (e, decrypted_message))
