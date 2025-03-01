@@ -401,9 +401,13 @@ class Peer_Map(plugins.Plugin, Widget):
             except Exception as e:
                 logging.error("Paste: %s: %s" % (self.xy, e))
                 self.image = self.image.resize((self.xy[2]-self.xy[0], self.xy[3]-self.xy[1]))
-                canvas.paste(self.image.convert(canvas.mode), self.xy)
-                self.redrawImage = True
-                self.trigger_redraw.set()
+                try:
+                    canvas.paste(self.image.convert(canvas.mode), self.xy)
+                    self.image = None
+                    self.redrawImage = True
+                    self.trigger_redraw.set()
+                except Exception as e2:
+                    logging.exception("Resized error: %s" % e)
 
 
     def on_loaded(self):
