@@ -416,6 +416,14 @@ class Peer_Map(plugins.Plugin, Widget):
 
         now = datetime.now()
         self.t_dir = self.options.get("track_dir", "/etc/pwnagotchi/pwn_gpsd")
+
+        fname = os.path.join(self.t_dir, "current.txt")
+        if os.path.isfile(fname):
+            self.me = gpsTrack("current", fname, True, True)
+            logging.debug("Read my location: %s" % (self.me.bounds))
+            self.redrawImage = True
+            self.trigger_redraw.set()
+
         tracks_fname_fmt = self.options.get("track_fname_fmt", "pwntrack_%Y%m%d.txt")
         n = 0
         i = 0
@@ -443,13 +451,6 @@ class Peer_Map(plugins.Plugin, Widget):
             i += 1
 
         self.trigger_redraw.set()
-
-        fname = os.path.join(self.t_dir, "current.txt")
-        if os.path.isfile(fname):
-            self.me = gpsTrack("current", fname, True, True)
-            logging.debug("Read my location: %s" % (self.me.bounds))
-            self.redrawImage = True
-            self.trigger_redraw.set()
 
         self.gpio = self.options.get("gpio", None)
         if self.gpio:
