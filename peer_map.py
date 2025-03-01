@@ -817,6 +817,7 @@ class Peer_Map(plugins.Plugin, Widget):
                         try:
                             zm = int(request.args['zf'])
                             self.zoom_multiplier = zm
+                            self.redrawImage = True
                         except Exception as e:
                             ret += "<li>Error on zoom multiplier: %s" % e
                             
