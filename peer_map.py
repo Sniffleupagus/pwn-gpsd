@@ -178,6 +178,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.me = None
         self.tracks = {}
         self.peers = {}
+        self.redrawImage = False
         self.image = None
         self.value = None
         self.xy = None
@@ -211,6 +212,9 @@ class Peer_Map(plugins.Plugin, Widget):
             return
         w = self.xy[2]-self.xy[0]
         h = self.xy[3]-self.xy[1]
+
+        if self.redrawImage:
+            self.redrawImage = False
         
         image = Image.new('RGBA', (w,h), self.bgcolor)
 
@@ -350,9 +354,6 @@ class Peer_Map(plugins.Plugin, Widget):
                 logging.error(e)
                 self.image = None
 
-    def on_ready(self, agent):
-        self._agent = agent
-
     def on_loaded(self):
       try:
         logging.info("peer_map loaded with options %s" % (self.options))
@@ -364,6 +365,12 @@ class Peer_Map(plugins.Plugin, Widget):
             self.track_colors = self.options['track_colors']
         if 'peer_colors' in self.options:
             self.peer_colors = self.options['peer_colors']
+      except Exception as e:
+          logging.exception(e)
+
+    def on_ready(self, agent):
+      try:
+        self._agent = agent
 
         now = datetime.now()
         self.t_dir = self.options.get("track_dir", "/etc/pwnagotchi/pwn_gpsd")
@@ -568,21 +575,36 @@ class Peer_Map(plugins.Plugin, Widget):
           logging.exception(e)
           return ret
 
-    def on_ui_update(self, ui):
+    def check_tracks_and_peers(self):
+        # check peers
         redrawImage = False
-        bounds = [180,90,-180,-90]
+        if self.update_peers():
+            redrawImage = True
 
-        # check tracks
         for f in sorted(self.tracks):
             logging.debug("Checking %s" % f)
             t = self.tracks[f]
+
             if t.visible and t.reloadFile():
                 logging.info("%s CHANGED" % f)
                 redrawImage = True
+
+        if redrawImage:
+            self.redrawImage = True
+        return redrawImage
+
+    def on_wait(self, agent, t):
+        self.check_tracks_and_peers()
+      
+    def on_sleep(self, agent, t):
+        self.check_tracks_and_peers()
+
+    def on_epoch(self, agent, epoch, epoch_data):
+        self.check_tracks_and_peers()
         
-        # check peers
-        if self.update_peers():
-            redrawImage = True
+    def on_ui_update(self, ui):
+        redrawImage = self.redrawImage
+        bounds = [180,90,-180,-90]
 
         # check me
         if self.me and self.me.reloadFile():
@@ -635,8 +657,6 @@ class Peer_Map(plugins.Plugin, Widget):
 
         if redrawImage:
             self.updateImage()
-
-
         
     def on_handshake(self, agent, filename, access_point, client_station):
         try:
@@ -662,6 +682,7 @@ class Peer_Map(plugins.Plugin, Widget):
         try:
             method = request.method
             path = request.path
+            logging.info("Webhook %s %s" % (path, repr(request.args)))
             if "/zoom_in" in path:
                 self.zoom_in("web")
                 return "OK", 204
