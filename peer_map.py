@@ -18,6 +18,7 @@ import hashlib
 import base64
 from urllib.parse import urlparse,unquote
 from cryptography.fernet import Fernet
+import prctl
 
 from math import radians, sin, cos, acos
 
@@ -194,6 +195,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.gpio = None
         self.window_size = None
         self.keep_going = True
+        self._worker_thread = None
         self.trigger_redraw = Event()
         self.occupado = False
 
@@ -218,19 +220,21 @@ class Peer_Map(plugins.Plugin, Widget):
         try:
             prctl.set_name("peer_map drawer")
         except:
-            pass
+            logging.info("No rename")
 
         while self.keep_going:
+            self.check_tracks_and_peers()
             if self.trigger_redraw.wait(timeout=1):
                 self.trigger_redraw.clear()
 
-                self.check_tracks_and_peers()
-            
-            if self.redrawImage:
-                self.redrawImage = False
-                self.updateImage()
+                if self.redrawImage:
+                    logging.debug("Redrawing")
+                    self.redrawImage = False
+                    self.updateImage()
+                else:
+                    time.sleep(1)
             else:
-                time.sleep(1)
+                logging.debug("timeout")
         logging.info("peer_map out")
 
     def updateImage(self):
@@ -238,7 +242,7 @@ class Peer_Map(plugins.Plugin, Widget):
         if self.occupado or not self._ui:
             return
         self.occupado = True
-        logging.info("Updating")
+        logging.debug("Updating")
         w = self.xy[2]-self.xy[0]
         h = self.xy[3]-self.xy[1]
 
@@ -258,7 +262,7 @@ class Peer_Map(plugins.Plugin, Widget):
             t = self.tracks[f]
             if t.visible and t.zoomToFit:
                 bounds = checkBounds(bounds, t.bounds)
-        logging.info("Track bounds: %s" % (bounds))
+        logging.debug("Track bounds: %s" % (bounds))
 
         pbounds = [180,90, -180,-90]
         logging.debug("Unpacking peers: %s" % (repr(self.peers)))
@@ -267,7 +271,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 pbounds = checkBounds(pbounds, json.loads(tpv))
             except Exception as e:
                 logging.exception(e)
-        logging.info("Peer bounds: %s" % (pbounds))
+        logging.debug("Peer bounds: %s" % (pbounds))
         bounds = checkBounds(bounds, pbounds)
 
         # go one "tick" bigger around the edges
@@ -279,7 +283,7 @@ class Peer_Map(plugins.Plugin, Widget):
         bounds[1] -= 0.0001
         sh = bounds[3] - bounds[1]
 
-        logging.info("Final bounds: %s" % (bounds))
+        logging.debug("Final bounds: %s" % (bounds))
 
         scale = min(w/sw, h/sh) * self.zoom_multiplier    # pixels per map unit
         midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
@@ -306,7 +310,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     d.point((x, h-y), fill = color)
                 i += 1
 
-        logging.info("Drew tracks")
+        logging.debug("Drew tracks")
         # draw peers
         i = 1
         for p, tpv in self.peers.items():
@@ -370,7 +374,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.image = image
       except Exception as e:
           logging.exception(e)
-      logging.info("Updated")
+      logging.debug("Updated")
       self.occupado = False
 
     def draw(self, canvas, drawer):
@@ -389,6 +393,8 @@ class Peer_Map(plugins.Plugin, Widget):
             except Exception as e:
                 logging.error(e)
                 self.image = None
+                self.trigger_redraw.set()
+
 
     def on_loaded(self):
       try:
@@ -420,7 +426,6 @@ class Peer_Map(plugins.Plugin, Widget):
                 t = gpsTrack(fname, os.path.join(self.t_dir, fname), True, True)
                 self.tracks[fname] = t
                 n += 1
-                self.trigger_redraw.set()
                 self.redrawImage = True
             i += 1
 
@@ -434,10 +439,10 @@ class Peer_Map(plugins.Plugin, Widget):
                 t = gpsTrack(fname, os.path.join(self.t_dir, fname), True, True)
                 self.tracks[fname] = t
                 n += 1
-                self.trigger_redraw.set()
                 self.redrawImage = True
             i += 1
 
+        self.trigger_redraw.set()
 
         fname = os.path.join(self.t_dir, "current.txt")
         if os.path.isfile(fname):
@@ -598,6 +603,7 @@ class Peer_Map(plugins.Plugin, Widget):
                                )
                     self.ui_elements.append(fname)
                     base_pos[1] += 10
+            self._worker_thread = _thread.start_new_thread(self._worker, ())
         except Exception as e:
             logging.exception(e)
 
@@ -621,8 +627,10 @@ class Peer_Map(plugins.Plugin, Widget):
                     if 'lat' in tpv and 'lon' in tpv:
                         logging.debug("Saving PEER %s: %s" % (p.adv.get('name', None), data))
                         data['name'] = p.adv.get('name', "peer")
-                        self.peers[id] = json.dumps(data)
-                        ret = True
+                        new_data = json.dumps(data)
+                        if new_data != self.peers.get(id, ""):
+                            self.peers[id] = new_data
+                            ret = True
         return ret
       except Exception as e:
           logging.exception(e)
@@ -632,9 +640,11 @@ class Peer_Map(plugins.Plugin, Widget):
         # check peers
         redrawImage = False
         if self.update_peers():
+            logging.info("Peers changed")
             redrawImage = True
 
         if self.me and self.me.reloadFile():
+            logging.info("My location changed")
             redrawImage = True
             
         for f in sorted(self.tracks):
@@ -646,6 +656,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 redrawImage = True
 
         if redrawImage:
+            logging.info("REDRAW")
             self.redrawImage = True
             self.trigger_redraw.set()
         return redrawImage
@@ -702,8 +713,8 @@ class Peer_Map(plugins.Plugin, Widget):
                 else:
                     ui.set('pm_speed', "---.--")
 
-        if self.redrawImage:
-            self.updateImage()
+        #if self.redrawImage:
+        #    self.updateImage()
         
     def on_handshake(self, agent, filename, access_point, client_station):
         try:
@@ -752,6 +763,8 @@ class Peer_Map(plugins.Plugin, Widget):
                 return "OK", 204
             elif "/toggle_fs" in path:
                 self.toggle_fs("web")
+                self.trigger_redraw.set()
+
                 return "OK", 204
             elif "/set_zoom" in path:
                 try:
@@ -762,11 +775,66 @@ class Peer_Map(plugins.Plugin, Widget):
                     if zf != self.zoom_multiplier:
                         self.zoom_multiplier = zf
                         self.redrawImage = True
+                        self.trigger_redraw.set()
                     return "OK", 204
                 
                 except Exception as e:
                     logging.exception(e)
                     return "<html><body>%s</body></html>" % (e)
+            elif "/set" in path:
+                try:
+                    logging.info("Setting all settings: %s" % repr(request.args))
+                    ret = '<html>><body>PeerMap! %s:<p>' % (path)
+                    ret += '<form action="/plugins/peer_map/set" method=get">'
+                    ret += '<ul>\n'
+
+                    allowed_options={"units:string":"feet|imperial|metric",
+                                     "days:int":"^[0-9]+$"}
+                    for a in request.args:
+                        if ':' in a:
+                            o, t = a.split(":")
+                            logging.info("args %s(%s) = %s" % (a, t, request.args[a]))
+                            if a in allowed_options:
+                                logging.info("\tUpdating %s %s -> %s" % (a, self.options[o], request.args[a]))
+                                if t == "int":
+                                    self.options[o] = int(request.args[a])
+                                elif t == "float":
+                                    self.options[o] = float(request.args[a])
+                                elif t == "bool":
+                                    if request.args[a].lower() == "true":
+                                        self.options[o] = True
+                                    elif request.args[a].lower() == "false":
+                                        self.options[o] = False
+                                    else:
+                                        logging.error("Invalid boolean value")
+                                elif t == "str":
+                                    self.options[o] = request.args[a]
+                                else:
+                                    logging.info("Unsupported options")
+
+                    # zoom multiplier
+                    if 'zf' in request.args:
+                        try:
+                            zm = int(request.args['zf'])
+                            self.zoom_multiplier = zm
+                        except Exception as e:
+                            ret += "<li>Error on zoom multiplier: %s" % e
+                            
+                    ret += '<li>Zoom Factor<input type=number id="zf" name="zf" min="1" max=2000" value="%d" />\n' % self.zoom_multiplier
+
+                    for o in self.options:
+                        logging.info("option %s -> %s" % (o, self.options[o]))
+                        t = type(o).__name__
+                        if t in ["int", "float", "str", "bool"]:
+                            ret += '<li>%s<input type=text name="%s:%s" value="%s">\n' % (o, o, t, self.options[o])
+
+                    ret += "</ul><input type=submit name=Update value=Update></form>"
+                    ret += "</body></html>"
+                    return ret
+                except Exception as e:
+                    logging.exception(e)
+                    ret += "<p><h3>ERROR: %s</h3></body></html>" % e
+                    return ret
             else:
                 return("<html><body>PeerMap! %s:<p>Request " % (path)
                        + "<a href=\"/plugins/peer_map/zoom_in\">/plugins/peer_map/zoom_in</a>"
