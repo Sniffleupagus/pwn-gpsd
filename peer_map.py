@@ -139,6 +139,10 @@ class gpsTrack:
             
     def loadFromFile(self, filename, ifUpdated=True):
         try:
+            now = time.time()
+            if now - self.mtime < 10:
+                # wait at least 10 seconds between reloads
+                return False
             if filename and os.path.isfile(filename):
                 self.filename = filename
                 mtime = os.stat(filename).st_mtime
