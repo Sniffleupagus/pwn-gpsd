@@ -158,7 +158,7 @@ class gpsTrack:
                                 
                         except Exception as e:
                             logging.error("- skip line: %s" % e)
-                    logging.debug("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
+                    logging.info("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
                     if len(tmp.points):
                         self.points = tmp.points
                         self.bounds = tmp.bounds
