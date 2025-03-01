@@ -235,16 +235,17 @@ class Peer_Map(plugins.Plugin, Widget):
                     self.trigger_redraw.clear()
 
                     if self.redrawImage:
-                        logging.debug("Redrawing")
+                        logging.info("Redrawing image")
                         self.redrawImage = False
                         self.updateImage()
+                        logging.info("Redrawing complete")
                     else:
-                        time.sleep(1)
+                        self.trigger_redraw.wait(timeout=1)
                 else:
                     logging.debug("timeout")
-                    time.sleep(1)
+                    self.trigger_redraw.wait(timeout=1)
             except Exception as e:
-                logging.exception(e)
+                logging.exception("PM_Drawer: %s" % (e))
         logging.info("peer_map out")
 
     def updateImage(self):
@@ -398,7 +399,7 @@ class Peer_Map(plugins.Plugin, Widget):
             try:
                 canvas.paste(self.image.convert(canvas.mode), self.xy)
             except Exception as e:
-                logging.error(e)
+                logging.error("Paste: %s: %s" % (self.xy, e))
                 self.image = None
                 self.trigger_redraw.set()
 
@@ -572,6 +573,7 @@ class Peer_Map(plugins.Plugin, Widget):
 
     def on_unload(self, ui):
         self.keep_going = False
+        self.trigger_redraw.set()
         with ui._lock:
             for el in self.ui_elements:
                 try:
@@ -671,7 +673,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 redrawImage = True
 
         if redrawImage:
-            logging.info("REDRAW")
+            logging.debug("REDRAW set")
             self.redrawImage = True
             self.trigger_redraw.set()
         return redrawImage
