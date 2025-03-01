@@ -5,6 +5,9 @@ from pwnagotchi.ui.components import *
 import pwnagotchi.ui.fonts as fonts
 from pwnagotchi.mesh.peer import Peer
 
+import _thread
+from threading import Event
+
 import os
 import glob
 from datetime import datetime,timedelta
@@ -135,23 +138,25 @@ class gpsTrack:
                 if ifUpdated == False or mtime > self.mtime:
                     logging.debug("loading %s" % filename)
                     self.mtime = mtime
+                    lines = []
                     with open(filename) as f:
-                        tmp = gpsTrack("temp")
                         lines = [line.rstrip() for line in f]
-                        for l in lines:
-                            try:
-                                l = l.strip(",")
-                                l = l.strip('\0')
-                                tpv = json.loads(l)
-                                tmp.addPoint(tpv)
+                    tmp = gpsTrack("temp")
+                    for l in lines:
+                        try:
+                            l = l.strip(",")
+                            l = l.strip('\0')
+                            tpv = json.loads(l)
+                            tmp.addPoint(tpv)
                                 
-                            except Exception as e:
-                                logging.error("- skip line: %s" % e)
-                        logging.info("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
+                        except Exception as e:
+                            logging.error("- skip line: %s" % e)
+                    logging.info("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
+                    if len(tmp.points):
                         self.points = tmp.points
                         self.bounds = tmp.bounds
                         del tmp
-                    return True
+                        return True
                 return False
             else:
                 logging.warn("No track file: %s" % (filename))
@@ -188,6 +193,9 @@ class Peer_Map(plugins.Plugin, Widget):
         self.zoom_multiplier = 1
         self.gpio = None
         self.window_size = None
+        self.keep_going = True
+        self.trigger_redraw = Event()
+        self.occupado = False
 
         self.state = True # this makes it touchable in Touch_UI plugin
         
@@ -206,16 +214,33 @@ class Peer_Map(plugins.Plugin, Widget):
         logging.info("The distance is %.2fkm." % dist)
         return dist *1000
 
+    def _worker(self):
+        try:
+            prctl.set_name("peer_map drawer")
+        except:
+            pass
+
+        while self.keep_going:
+            self.trigger_redraw.wait()
+            self.trigger_redraw.clear()
+
+            self.check_tracks_and_peers()
+            
+            if self.redrawImage:
+                self.redrawImage = False
+                self.updateImage()
+            else:
+                time.sleep(1)
+
     def updateImage(self):
       try:
-        if not self._ui:
+        if self.occupado or not self._ui:
             return
+        self.occupado = True
+        logging.info("Updating")
         w = self.xy[2]-self.xy[0]
         h = self.xy[3]-self.xy[1]
 
-        if self.redrawImage:
-            self.redrawImage = False
-        
         image = Image.new('RGBA', (w,h), self.bgcolor)
 
         d = ImageDraw.Draw(image)
@@ -232,7 +257,7 @@ class Peer_Map(plugins.Plugin, Widget):
             t = self.tracks[f]
             if t.visible and t.zoomToFit:
                 bounds = checkBounds(bounds, t.bounds)
-        logging.debug("Track bounds: %s" % (bounds))
+        logging.info("Track bounds: %s" % (bounds))
 
         pbounds = [180,90, -180,-90]
         logging.debug("Unpacking peers: %s" % (repr(self.peers)))
@@ -241,7 +266,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 pbounds = checkBounds(pbounds, json.loads(tpv))
             except Exception as e:
                 logging.exception(e)
-        logging.debug("Peer bounds: %s" % (pbounds))
+        logging.info("Peer bounds: %s" % (pbounds))
         bounds = checkBounds(bounds, pbounds)
 
         # go one "tick" bigger around the edges
@@ -253,7 +278,7 @@ class Peer_Map(plugins.Plugin, Widget):
         bounds[1] -= 0.0001
         sh = bounds[3] - bounds[1]
 
-        logging.debug("Final bounds: %s" % (bounds))
+        logging.info("Final bounds: %s" % (bounds))
 
         scale = min(w/sw, h/sh) * self.zoom_multiplier    # pixels per map unit
         midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
@@ -267,9 +292,9 @@ class Peer_Map(plugins.Plugin, Widget):
         i = 0
         for f in sorted(self.tracks):
             t = self.tracks[f]
-            if t.visible:  #and boxesOverlap( map_bbox, t.bounds):
+            if t.visible and boxesOverlap( map_bbox, t.bounds):
                 # visible and overlaps, so plot it
-                logging.debug("Plotting %s %s" % (f, t.bounds))
+                logging.info("Plotting %s %s" % (f, t.bounds))
                 lp = None
                 color = self.track_colors[i % len(self.track_colors)]
                 logging.debug("Scale: %s, %s, map box: %s" % (scale, color, map_bbox))
@@ -280,6 +305,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     d.point((x, h-y), fill = color)
                 i += 1
 
+        logging.info("Drew tracks")
         # draw peers
         i = 1
         for p, tpv in self.peers.items():
@@ -343,10 +369,12 @@ class Peer_Map(plugins.Plugin, Widget):
         self.image = image
       except Exception as e:
           logging.exception(e)
+      logging.info("Updated")
+      self.occupado = False
 
     def draw(self, canvas, drawer):
         if not self.image:
-            self.updateImage()
+            return
         if self.image and self.xy:
             try:
                 canvas.paste(self.image.convert(canvas.mode), self.xy)
@@ -377,31 +405,38 @@ class Peer_Map(plugins.Plugin, Widget):
         tracks_fname_fmt = self.options.get("track_fname_fmt", "pwntrack_%Y%m%d.txt")
         n = 0
         i = 0
-        while i < 30 and n < self.options.get("days", 3):
+        while i < 30 and n < self.options.get("days", 3) and self.keep_going:
             fname = (now - timedelta(days=i)).strftime(tracks_fname_fmt)
             logging.debug("Looking for %s" % os.path.join(self.t_dir, fname))
             if os.path.isfile(os.path.join(self.t_dir, fname)):
                 t = gpsTrack(fname, os.path.join(self.t_dir, fname), True, True)
                 self.tracks[fname] = t
                 n += 1
+                self.trigger_redraw.set()
+                self.redrawImage = True
             i += 1
 
         tracks_fname_fmt = self.options.get("track_fname_fmt", "peertrack_%Y%m%d.txt")
         n = 0
         i = 0
-        while i < 30 and n < self.options.get("days", 3):
+        while i < 30 and n < self.options.get("days", 3) and self.keep_going:
             fname = (now - timedelta(days=i)).strftime(tracks_fname_fmt)
             logging.debug("Looking for %s" % os.path.join(self.t_dir, fname))
             if os.path.isfile(os.path.join(self.t_dir, fname)):
                 t = gpsTrack(fname, os.path.join(self.t_dir, fname), True, True)
                 self.tracks[fname] = t
                 n += 1
+                self.trigger_redraw.set()
+                self.redrawImage = True
             i += 1
+
 
         fname = os.path.join(self.t_dir, "current.txt")
         if os.path.isfile(fname):
             self.me = gpsTrack("current", fname, True, True)
             logging.debug("Read my location: %s" % (self.me.bounds))
+            self.redrawImage = True
+            self.trigger_redraw.set()
 
         self.gpio = self.options.get("gpio", None)
         if self.gpio:
@@ -438,7 +473,9 @@ class Peer_Map(plugins.Plugin, Widget):
             self.window_size = self.xy.copy()
             border = self.options.get('border', 5)
             self.xy = (border, border, self._ui.width()-border, self._ui.height()-border)
-        self.image = None
+        self.redrawImage = True
+        self.trigger_redraw.set()
+        logging.info("Zoom multiplier = %s" % self.zoom_multiplier)
       except Exception as e:
           logging.exception("Zoom in: %s: %s" % (channel, e))
 
@@ -452,7 +489,9 @@ class Peer_Map(plugins.Plugin, Widget):
         elif self.window_size:
             self.xy = self.window_size.copy()
             self.window_size = None
-        self.image = None
+        self.redrawImage = True
+        self.trigger_redraw.set()
+        logging.info("Zoom multiplier = %s" % self.zoom_multiplier)        
       except Exception as e:
           logging.exception("Zoom in: %s: %s" % (channel, e))
 
@@ -505,6 +544,7 @@ class Peer_Map(plugins.Plugin, Widget):
         ui.set("peer_map", time.time())
 
     def on_unload(self, ui):
+        self.keep_going = False
         with ui._lock:
             for el in self.ui_elements:
                 try:
@@ -581,6 +621,9 @@ class Peer_Map(plugins.Plugin, Widget):
         if self.update_peers():
             redrawImage = True
 
+        if self.me and self.me.reloadFile():
+            redrawImage = True
+            
         for f in sorted(self.tracks):
             logging.debug("Checking %s" % f)
             t = self.tracks[f]
@@ -591,25 +634,16 @@ class Peer_Map(plugins.Plugin, Widget):
 
         if redrawImage:
             self.redrawImage = True
+            self.trigger_redraw.set()
         return redrawImage
 
-    def on_wait(self, agent, t):
-        self.check_tracks_and_peers()
-      
-    def on_sleep(self, agent, t):
-        self.check_tracks_and_peers()
-
-    def on_epoch(self, agent, epoch, epoch_data):
-        self.check_tracks_and_peers()
-        
     def on_ui_update(self, ui):
-        redrawImage = self.redrawImage
         bounds = [180,90,-180,-90]
 
         # check me
-        if self.me and self.me.reloadFile():
+        if self.me:
             logging.debug("Me updated: %s" % (self.me.bounds))
-            redrawImage = True
+            self.redrawImage = True
             tpv = self.me.lastPoint()
             fields = self.options.get('fields', ['fix', 'lon', 'lat', 'alt', 'speed'])
             units = self.options.get('units', 'metric')
@@ -655,7 +689,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 else:
                     ui.set('pm_speed', "---.--")
 
-        if redrawImage:
+        if self.redrawImage:
             self.updateImage()
         
     def on_handshake(self, agent, filename, access_point, client_station):
@@ -693,11 +727,13 @@ class Peer_Map(plugins.Plugin, Widget):
                 if self.window_size:
                     self.xy = self.window_size.copy()
                     self.window_size = None
+                    logging.info("Toggle to windowed")
                 else:
                     self.window_size = self.xy.copy()                    
                     border = self.options.get('border', 5)
                     self.xy = (border, border, self._ui.width()-border, self._ui.height()-border)
-                self.image = None
+                    logging.info("Toggle to fullscreen")
+                self.redrawImage = True
                 return "OK", 204
             elif "/set_zoom" in path:
                 try:
@@ -707,7 +743,7 @@ class Peer_Map(plugins.Plugin, Widget):
                         zf = 1       
                     if zf != self.zoom_multiplier:
                         self.zoom_multiplier = zf
-                        self.image = None
+                        self.redrawImage = True
                     return "OK", 204
                 
                 except Exception as e:
