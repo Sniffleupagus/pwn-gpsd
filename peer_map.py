@@ -158,7 +158,7 @@ class gpsTrack:
                                 
                         except Exception as e:
                             logging.error("- skip line: %s" % e)
-                    logging.info("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
+                    logging.debug("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
                     if len(tmp.points):
                         self.points = tmp.points
                         self.bounds = tmp.bounds
@@ -219,7 +219,7 @@ class Peer_Map(plugins.Plugin, Widget):
         plon = radians(float(ln2))
 
         dist = 6371.01 * acos(sin(mlat)*sin(plat) + cos(mlat)*cos(plat)*cos(mlon - plon))
-        logging.info("The distance is %.2fkm." % dist)
+        logging.debug("The distance is %.2fkm." % dist)
         return dist *1000
 
     def _worker(self):
@@ -358,7 +358,7 @@ class Peer_Map(plugins.Plugin, Widget):
             try:
                 dist = self.haversine_distance(map_bbox[0], 0, map_bbox[2], 0)
                 units = self.options.get('units', 'metric').lower()
-                logging.info("Distance is: %s. Want units %s" % (dist, units))
+                logging.debug("Distance is: %s. Want units %s" % (dist, units))
                 if units in ['feet', 'imperial']:
                     dist *= 3.28084 # meters to feet
                     if dist > 5280: # show miles if far
@@ -375,7 +375,7 @@ class Peer_Map(plugins.Plugin, Widget):
                         dist_text = "width = %0.2f m, %0.5e degrees" % (dist, map_bbox[2]-map_bbox[0])
                         dist_text += "\nheight = %0.2f m, %0.5e degrees" % (dist * h / w, map_bbox[3]-map_bbox[1])
                 d.text((15,15), "%s\nzoom = %s" % (dist_text, self.zoom_multiplier), fill=self.color, font=self.font)
-                logging.info("Window %s" % dist_text)
+                logging.debug("Window %s" % dist_text)
             except Exception as e:
                 logging.exception(e)
 
@@ -659,11 +659,11 @@ class Peer_Map(plugins.Plugin, Widget):
         # check peers
         redrawImage = False
         if self.update_peers():
-            logging.info("Peers changed")
+            logging.debug("Peers changed")
             redrawImage = True
 
         if self.me and self.me.reloadFile():
-            logging.info("My location changed")
+            logging.debug("My location changed")
             redrawImage = True
             
         for f in sorted(self.tracks):
@@ -671,7 +671,7 @@ class Peer_Map(plugins.Plugin, Widget):
             t = self.tracks[f]
 
             if t.visible and t.reloadFile():
-                logging.info("%s CHANGED" % f)
+                logging.debug("%s CHANGED" % f)
                 redrawImage = True
 
         if redrawImage:
