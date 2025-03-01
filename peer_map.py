@@ -661,14 +661,13 @@ class Peer_Map(plugins.Plugin, Widget):
 
     def check_tracks_and_peers(self):
         # check peers
-        redrawImage = False
         if self.update_peers():
             logging.debug("Peers changed")
-            redrawImage = True
+            self.redrawImage = True
 
         if self.me and self.me.reloadFile():
             logging.debug("My location changed")
-            redrawImage = True
+            self.redrawImage = True
             
         for f in sorted(self.tracks):
             logging.debug("Checking %s" % f)
@@ -676,11 +675,10 @@ class Peer_Map(plugins.Plugin, Widget):
 
             if t.visible and t.reloadFile():
                 logging.debug("%s CHANGED" % f)
-                redrawImage = True
+                self.redrawImage = True
 
-        if redrawImage:
+        if self.redrawImage:
             logging.debug("REDRAW set")
-            self.redrawImage = True
             self.trigger_redraw.set()
         return redrawImage
 
