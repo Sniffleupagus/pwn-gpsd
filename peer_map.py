@@ -221,16 +221,17 @@ class Peer_Map(plugins.Plugin, Widget):
             pass
 
         while self.keep_going:
-            self.trigger_redraw.wait()
-            self.trigger_redraw.clear()
+            if self.trigger_redraw.wait(timeout=1):
+                self.trigger_redraw.clear()
 
-            self.check_tracks_and_peers()
+                self.check_tracks_and_peers()
             
             if self.redrawImage:
                 self.redrawImage = False
                 self.updateImage()
             else:
                 time.sleep(1)
+        logging.info("peer_map out")
 
     def updateImage(self):
       try:
@@ -294,7 +295,7 @@ class Peer_Map(plugins.Plugin, Widget):
             t = self.tracks[f]
             if t.visible and boxesOverlap( map_bbox, t.bounds):
                 # visible and overlaps, so plot it
-                logging.info("Plotting %s %s" % (f, t.bounds))
+                logging.debug("Plotting %s %s" % (f, t.bounds))
                 lp = None
                 color = self.track_colors[i % len(self.track_colors)]
                 logging.debug("Scale: %s, %s, map box: %s" % (scale, color, map_bbox))
@@ -374,7 +375,14 @@ class Peer_Map(plugins.Plugin, Widget):
 
     def draw(self, canvas, drawer):
         if not self.image:
-            return
+            w = self.xy[2]-self.xy[0]
+            h = self.xy[3]-self.xy[1]
+            im = Image.new('RGBA', (w,h), self.bgcolor)
+            d = ImageDraw.Draw(im)
+            d.rectangle((0,0,w-1,h-1), fill=self.bgcolor, outline='#808080')
+            d.text((w/2,h/2), "Peer Map", anchor="mm", font=self.font, fill=self.color)
+            self.image = im
+                        
         if self.image and self.xy:
             try:
                 canvas.paste(self.image.convert(canvas.mode), self.xy)
@@ -533,14 +541,19 @@ class Peer_Map(plugins.Plugin, Widget):
         logging.debug("Touch press: %s, %s" % (touch_data, ui_element));
 
     def on_touch_release(self, ts, ui, ui_element, touch_data):
-        logging.info("Touch press: %s, %s" % (touch_data, ui_element));
+        logging.info("Touch release: %s, %s" % (touch_data, ui_element));
+        if ui_element != "peer_map":
+            logging.warn("Touch release but not my element")
+            return
+    
         if not self.window_size:
             self.zoom_in("touch")
-        elif touch_data['point'][0] > ui.width()/2:
+        elif touch_data['point'][0] > 2*ui.width()/3:
             self.zoom_in("touch")
-        else:
+        elif touch_data['point'][0] < ui.width()/3:
             self.zoom_out("touch")
-
+        else:
+            self.toggle_fs("touch")
         ui.set("peer_map", time.time())
 
     def on_unload(self, ui):
@@ -657,7 +670,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     fix = "%sD" % mode
 
                 if 'undivided_count' in tpv:
-                    fix += "-%d" % (int(100 - (tpv['undivided_count'][1]/tpv['undivided_count'][0])/2))
+                    fix += "-%d" % (int(tpv['undivided_count'][0]))
 
                 ui.set('pm_fix', fix)
 
@@ -712,6 +725,20 @@ class Peer_Map(plugins.Plugin, Widget):
         except Exception as err:
             logging.exception("[pwn-gpsd handshake] %s" % repr(err))
 
+
+    def toggle_fs(self, channel):
+        if self.window_size:
+            self.xy = self.window_size.copy()
+            self.window_size = None
+            logging.info("Toggle to windowed")
+        else:
+            self.window_size = self.xy.copy()                    
+            border = self.options.get('border', 5)
+            self.xy = (border, border, self._ui.width()-border, self._ui.height()-border)
+            logging.info("Toggle to fullscreen")
+        self.redrawImage = True
+        self.trigger_redraw.set()
+
     def on_webhook(self, path, request):
         try:
             method = request.method
@@ -724,16 +751,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 self.zoom_out("web")
                 return "OK", 204
             elif "/toggle_fs" in path:
-                if self.window_size:
-                    self.xy = self.window_size.copy()
-                    self.window_size = None
-                    logging.info("Toggle to windowed")
-                else:
-                    self.window_size = self.xy.copy()                    
-                    border = self.options.get('border', 5)
-                    self.xy = (border, border, self._ui.width()-border, self._ui.height()-border)
-                    logging.info("Toggle to fullscreen")
-                self.redrawImage = True
+                self.toggle_fs("web")
                 return "OK", 204
             elif "/set_zoom" in path:
                 try:
