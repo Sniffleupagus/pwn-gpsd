@@ -445,6 +445,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 self.tracks[fname] = t
                 n += 1
                 self.redrawImage = True
+                self.trigger_redraw.set()
             i += 1
 
         tracks_fname_fmt = self.options.get("track_fname_fmt", "peertrack_%Y%m%d.txt")
@@ -458,9 +459,9 @@ class Peer_Map(plugins.Plugin, Widget):
                 self.tracks[fname] = t
                 n += 1
                 self.redrawImage = True
+                self.trigger_redraw.set()
             i += 1
 
-        self.trigger_redraw.set()
 
         self.gpio = self.options.get("gpio", None)
         if self.gpio:
