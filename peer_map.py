@@ -12,7 +12,8 @@ import os
 import glob
 from datetime import datetime,timedelta
 import time
-import json
+#import json
+import orjson as json
 import random
 import hashlib
 import base64
@@ -315,11 +316,16 @@ class Peer_Map(plugins.Plugin, Widget):
         i = 1
         for p, tpv in self.peers.items():
             logging.debug("PEER info tpv: %s, %s" % (type(tpv), tpv))
-            if isinstance(tpv, str):
+            if isinstance(tpv, str) or isinstance(tpv, bytes):
                 try:
                     data = json.loads(tpv)
                 except Exception as e:
-                    logging.exception("Error reading json: %s" % e)
+                    logging.exception("Error reading json: %s\n%s" % (e, repr(tpv)))
+                    data = {}
+            else:
+                logging.info("TPV is %s: %s" % (type(tpv).__name__, repr(tpv)))
+                data = {}
+                    
             if 'lat' in data and 'lon' in data:
                 x = (data['lon'] - midpoint[0]) * scale + w/2
                 y = (data['lat'] - midpoint[1]) * scale + h/2
@@ -620,7 +626,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 logging.debug("Decrypting %s: %s" % (adv.get('name','unknown'), adv))
                 tpv = self.decrypt_data(adv.get(ADV_FIELD))
                 if tpv and tpv != self.peers.get(id, ""):
-                    if isinstance(tpv, str):
+                    if isinstance(tpv, str) or isinstance(tpv, bytes):
                         try:
                             data = json.loads(tpv)
                         except Exception as e:
@@ -630,6 +636,7 @@ class Peer_Map(plugins.Plugin, Widget):
                         data['name'] = p.adv.get('name', "peer")
                         new_data = json.dumps(data)
                         if new_data != self.peers.get(id, ""):
+                            logging.debug("Saving peer data %s: %s" % (type(new_data).__name__, new_data))
                             self.peers[id] = new_data
                             ret = True
         return ret
