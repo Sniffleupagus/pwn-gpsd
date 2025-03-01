@@ -680,7 +680,7 @@ class Peer_Map(plugins.Plugin, Widget):
         if self.redrawImage:
             logging.debug("REDRAW set")
             self.trigger_redraw.set()
-        return redrawImage
+        return self.redrawImage
 
     def on_ui_update(self, ui):
         bounds = [180,90,-180,-90]
