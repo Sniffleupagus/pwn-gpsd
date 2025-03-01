@@ -403,7 +403,6 @@ class Peer_Map(plugins.Plugin, Widget):
                 self.image = self.image.resize((self.xy[2]-self.xy[0], self.xy[3]-self.xy[1]))
                 try:
                     canvas.paste(self.image.convert(canvas.mode), self.xy)
-                    self.image = None
                     self.redrawImage = True
                     self.trigger_redraw.set()
                 except Exception as e2:
