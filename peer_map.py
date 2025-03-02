@@ -756,7 +756,8 @@ class Peer_Map(plugins.Plugin, Widget):
                 gps_filename = filename.replace(".pcap", ".gps.json")
                 logging.info(f"saving GPS to {gps_filename} ({tpv})")
                 with open(gps_filename, "w+t") as fp:
-                    fp.write(json.dumps(tpv, fp) + ",\n")
+                    fp.write(json.dumps(tpv, fp))
+                    fp.write("\n")
             else:
                 logging.info("not saving GPS. Couldn't find location.")
         except Exception as err:
