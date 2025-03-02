@@ -621,11 +621,12 @@ if __name__ == "__main__":
 
         if wantPwngrid and not pwngridAdvertising:
             try:
-                logging.info("Starting pwngrid advertising")
+                logging.info("Activating pwngrid advertising")
                 pwngrid.advertise(True)
                 pwngridAdvertising = True
             except Exception as e:
-                logging.exception(e)
+                logging.error(e)
+                pwngridAdvertising = False
         try:
             write_list = messages_for.keys()
             err_list = read_list.copy()
@@ -639,27 +640,31 @@ if __name__ == "__main__":
             if useSharedLoc and time.time() - last_share_check > 10:
                 last_share_check = time.time()
                 # get list of peers
-                peers = pwngrid.peers()
-
                 friend_locs = []
-                for p in peers:
-                    adv = p.get('advertisement', {})
-                    try:
-                        pos = gpsd.decrypt_data(adv.get('snorlax', {}))
-                    except Exception as e:
-                        logging.info("Failed %s\n\t%s\n\t%s" % (e, adv.get('name'), adv))
-                        pos = None
-                    if pos:
-                        logging.debug("Peer %s pos: %s" % (adv.get('name', ""), pos))
-                        p_loc = json.loads(pos)
-                        if p_loc:
-                            logging.debug(p_loc)
-                            p_loc['name'] = adv['name']
-                            p_loc['identity'] = adv['identity']
-                            p_loc['Cached'] = time.time()
-                            p_loc['rssi'] = p.get('rssi', None)
-                            friend_locs.append(p_loc)
+                try:
+                    peers = pwngrid.peers()
 
+                    for p in peers:
+                        adv = p.get('advertisement', {})
+                        try:
+                            pos = gpsd.decrypt_data(adv.get('snorlax', {}))
+                            if pos:
+                                logging.debug("Peer %s pos: %s" % (adv.get('name', ""), pos))
+                                p_loc = json.loads(pos)
+                                if p_loc:
+                                    logging.debug(p_loc)
+                                    p_loc['name'] = adv['name']
+                                    p_loc['identity'] = adv['identity']
+                                    p_loc['Cached'] = time.time()
+                                    p_loc['rssi'] = p.get('rssi', None)
+                                    friend_locs.append(p_loc)
+                        except Exception as e:
+                            logging.info("Failed %s\n\t%s\n\t%s" % (e, adv.get('name'), adv))
+
+                except Exception as pe:
+                    logging.error("Pwngrid error: %s" % (pe))
+                    pwngridAdvertising = False
+                    
                 # average locations for "my location"
                 for f in friend_locs:
                     if 'lon' in f:
@@ -756,12 +761,11 @@ if __name__ == "__main__":
                                 queue_message_for(s, '?WATCH={"enable":true, "json":true};\n')
                                 #queue_message_for(s, '?DEVICES;\n')
                             elif m_class == 'WATCH':
-                                print("WATCH")
+                                logging.info("WATCH")
                                 for k in data.keys():
                                     if k == "class":
                                         continue
-                                    if data[k] == True:
-                                        print("\t%s" % k)
+                                    logging.info("\t%s = %s" % (k, data[k]))
                             elif m_class == 'DEVICE':
                                 print("GPSD> %s" % raw.strip())
                                 for cl in client_sockets.keys():
