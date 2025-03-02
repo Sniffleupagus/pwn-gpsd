@@ -16,7 +16,7 @@ import time
 try:
     import orjson as json
 except Exception as e:
-    logging.info("Install orjson with pip to get better json performance")
+    logging.warning("Install orjson with pip to get better json performance")
     import json
 
 import random
@@ -66,7 +66,7 @@ def checkBounds(overall, new):
         else:
             logging.debug("No lat or lon. skipping: %s" % new)
     else:
-        logging.info("Unable to process: Overall %d elements. New %d elements:  %s" % (len(overall), len(new), repr(new)))
+        logging.warning("Unable to process: Overall %d elements. New %d elements:  %s" % (len(overall), len(new), repr(new)))
 
     return ret
 
@@ -755,11 +755,11 @@ class Peer_Map(plugins.Plugin, Widget):
             if 'lat' in tpv:
                 gps_filename = filename.replace(".pcap", ".gps.json")
                 logging.info(f"saving GPS to {gps_filename} ({tpv})")
-                with open(gps_filename, "w+t") as fp:
-                    fp.write(json.dumps(tpv, fp))
-                    fp.write("\n")
+                with open(gps_filename, "wb+") as fp:
+                    fp.write(json.dumps(tpv))
+                    fp.write("\n".encode("utf-8"))
             else:
-                logging.info("not saving GPS. Couldn't find location.")
+                logging.warning("not saving GPS. Couldn't find location.")
         except Exception as err:
             logging.exception("[pwn-gpsd handshake] %s" % repr(err))
 
