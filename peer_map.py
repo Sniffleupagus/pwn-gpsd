@@ -489,7 +489,7 @@ class Peer_Map(plugins.Plugin, Widget):
                         GPIO.setup(p, GPIO.IN, GPIO.PUD_UP)
                         logging.info("Setting event %s -> %s" % (action, p))
                         GPIO.add_event_detect(p, GPIO.FALLING, callback=cb,
-                                   bouncetime=800)
+                                   bouncetime=100)
                         logging.info("Set up %s on pin %d" % (action, p))
             except Exception as gpio_e:
                 logging.exception("Loading GPIO: %s" % gpio_e)
