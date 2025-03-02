@@ -510,6 +510,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.redrawImage = True
         self.trigger_redraw.set()
         logging.info("Zoom multiplier = %s" % self.zoom_multiplier)
+        self._ui.set('peer_map', time.time())
       except Exception as e:
           logging.exception("Zoom in: %s: %s" % (channel, e))
 
@@ -526,6 +527,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.redrawImage = True
         self.trigger_redraw.set()
         logging.info("Zoom multiplier = %s" % self.zoom_multiplier)        
+        self._ui.set('peer_map', time.time())
       except Exception as e:
           logging.exception("Zoom in: %s: %s" % (channel, e))
 
@@ -776,6 +778,7 @@ class Peer_Map(plugins.Plugin, Widget):
             logging.info("Toggle to fullscreen")
         self.redrawImage = True
         self.trigger_redraw.set()
+        self._ui.set('peer_map', time.time())
 
     def on_webhook(self, path, request):
         try:
@@ -784,14 +787,16 @@ class Peer_Map(plugins.Plugin, Widget):
             logging.info("Webhook %s %s" % (path, repr(request.args)))
             if "/zoom_in" in path:
                 self.zoom_in("web")
+                self._ui.set('peer_map', time.time())
                 return "OK", 204
             elif "/zoom_out" in path:
                 self.zoom_out("web")
+                self._ui.set('peer_map', time.time())
                 return "OK", 204
             elif "/toggle_fs" in path:
                 self.toggle_fs("web")
                 self.trigger_redraw.set()
-
+                self._ui.set('peer_map', time.time())
                 return "OK", 204
             elif "/set_zoom" in path:
                 try:
@@ -803,6 +808,7 @@ class Peer_Map(plugins.Plugin, Widget):
                         self.zoom_multiplier = zf
                         self.redrawImage = True
                         self.trigger_redraw.set()
+                        self._ui.set('peer_map', time.time())
                     return "OK", 204
                 
                 except Exception as e:
