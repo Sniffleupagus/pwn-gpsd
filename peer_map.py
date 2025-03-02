@@ -474,12 +474,14 @@ class Peer_Map(plugins.Plugin, Widget):
         if self.gpio:
             try:
                 GPIO.setmode(GPIO.BCM)
-                for action in ['zoom_in', 'zoom_out']:
+                for action in ['zoom_in', 'zoom_out', 'toggle_fs']:
                     if action in self.gpio:
                         if action == 'zoom_in':
                             cb = self.zoom_in
                         elif action == 'zoom_out':
                             cb = self.zoom_out
+                        elif action == 'toggle_fs':
+                            cb = self.toggle_fs
                         else:
                             cb = self.handle_button
                         p = self.gpio[action]
