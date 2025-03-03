@@ -84,7 +84,7 @@ def checkBounds(overall, new):
 def boxesOverlap(a, b):
     try:
         if not b:
-            logging.exception("None type given")
+            logging.error("None type given")
             return False
         
         if len(b) == 2: # b is a point
@@ -112,7 +112,9 @@ class gpsTrack:
     name = None
     filename = None
     mtime = 0
-    points = None
+    last_point = {}   # GPSD TPV structures
+    lons = []     # array of longitudes cached from tpvs
+    lats = []     # array of latitudes taken from tpvs
     bounds = None
     visible = True
     zoomToFit = False
@@ -122,19 +124,20 @@ class gpsTrack:
         self.visible = visible
         self.zoomToFit = zoomToFit
         self.gpio = None
-        self.points = []
 
         if filename:
             self.loadFromFile(filename)
 
     def addPoint(self, tpv):
         if 'lat' in tpv and 'lon' in tpv:
-            if not self.points:
-                self.points = []
 
-            self.points.append(tpv)
             lat = tpv.get('lat')
             lon = tpv.get('lon')
+
+            self.last_point = tpv
+            self.lons.append(lon)
+            self.lats.append(lat)
+
             if not self.bounds:
                 self.bounds = [200,200,-200,-200]
 
@@ -144,9 +147,7 @@ class gpsTrack:
             if lat > self.bounds[3]: self.bounds[3] = lat
 
     def lastPoint(self):
-        if not self.points:
-            return None
-        return self.points[-1]
+        return self.last_point
             
     def loadFromFile(self, filename, ifUpdated=True, ifOlderThan=10):
         try:
@@ -164,6 +165,8 @@ class gpsTrack:
                     with open(filename) as f:
                         lines = [line.rstrip() for line in f]
                     tmp = gpsTrack("temp")
+                    tmp.lons=[]
+                    tmp.lats=[]
                     for l in lines:
                         try:
                             l = l.strip(",")
@@ -173,11 +176,13 @@ class gpsTrack:
                                 
                         except Exception as e:
                             logging.error("- skip line: %s" % e)
-                    logging.debug("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
-                    if len(tmp.points):
-                        self.points = tmp.points
+                    logging.debug("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.lats), tmp.bounds))
+                    if len(tmp.lats):
                         self.bounds = tmp.bounds
+                        self.lons = tmp.lons.copy()
+                        self.lats = tmp.lats.copy()
                         del tmp
+
                         return True
                 return False
             else:
@@ -251,9 +256,10 @@ class Peer_Map(plugins.Plugin, Widget):
 
                     if self.redrawImage:
                         logging.debug("Redrawing image")
+                        now = time.time()
                         self.redrawImage = False
                         self.updateImage()
-                        logging.debug("Redrawing complete")
+                        logging.debug("Redrew map in %fs" % (time.time() - now))
                     else:
                         self.trigger_redraw.wait(timeout=1)
                 else:
@@ -262,6 +268,7 @@ class Peer_Map(plugins.Plugin, Widget):
             except Exception as e:
                 logging.exception("PM_Drawer: %s" % (e))
         logging.info("peer_map out")
+
     def updateImage(self):
       try:
         if self.occupado or not self._ui:
@@ -271,11 +278,8 @@ class Peer_Map(plugins.Plugin, Widget):
         w = self.xy[2]-self.xy[0]
         h = self.xy[3]-self.xy[1]
 
-        #image = Image.new('RGBA', (w,h), self.bgcolor)
-
-        #d = ImageDraw.Draw(image)
-        #d.fontmode = '1'
-        #d.rectangle((0,0,w-1,h-1), fill=self.bgcolor, outline='#808080')
+        self.redrawImage = False
+        then = time.time()
 
         # compute lon/lat boundaries
         if self.me and self.me.bounds:
@@ -309,7 +313,7 @@ class Peer_Map(plugins.Plugin, Widget):
         bounds[1] -= 0.0001
         sh = bounds[3] - bounds[1]
 
-        logging.debug("Final bounds: %s" % (bounds))
+        logging.debug("Final bounds(%fs): %s" % (time.time()-then, bounds))
 
         scale = min(w/sw, h/sh) * self.zoom_multiplier    # pixels per map unit
         midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
@@ -320,6 +324,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     midpoint[0] + (w/2)/scale, midpoint[1] + (h/2)/scale]
 
         dpi = mpl.rcParams["figure.dpi"]
+        mpl.rcParams["path.simplify"] = True
         linewidth = dpi * 0.1
         fig = plt.figure(figsize=(w/dpi, h/dpi))
         fig.tight_layout()
@@ -338,10 +343,11 @@ class Peer_Map(plugins.Plugin, Widget):
                 color = self.track_colors[i % len(self.track_colors)]
                 logging.debug("Scale: %s, %s, map box: %s" % (scale, color, map_bbox))
                 if True: # usematplotlib
-                    lats = [p['lat'] for p in t.points]
-                    lons = [p['lon'] for p in t.points]
-                    #plt.plot(lons, lats, linestyle='-', linewidth=linewidth, color=color)
-                    plt.plot(lons, lats, marker=',', markersize=linewidth, linewidth=0, markeredgecolor='none', color=color, antialiased=False)
+                    #plt.plot(t.lons, t.lats, linestyle='-', linewidth=linewidth, color=color)
+                    try:
+                        plt.plot(t.lons, t.lats, marker=',', markersize=linewidth, linewidth=0, markeredgecolor='none', color=color, antialiased=False)
+                    except Exception as e:
+                        logging.exception("Plot: Lats %d, lons %d, err: %s" % (len(lats), len(lons), e))
                 else:
                     for p in t.points:
                         x = (p['lon'] - midpoint[0]) * scale + w/2
@@ -349,22 +355,26 @@ class Peer_Map(plugins.Plugin, Widget):
                         #logging.info("Point:(%s %s), (%s %s)" % (p['lon'],x, p['lat'],y))
                         d.point((x, h-y), fill = color)
                 i += 1
-
+                logging.debug("Track (%fs) %d, %d %s" % (time.time()-then, len(t.lons), len(t.lats), f))
         # convert matplotlib fig to PIL image
         plt.yticks(fontsize=8)
         plt.xticks(fontsize=8)
         plt.axis('off')
+        logging.debug("Doing buf (%fs)" % (time.time()-then))
         buf = BytesIO()
         fig.savefig(buf, pad_inches=0, bbox_inches='tight')
         plt.clf()
-        plt.close("all")
+        plt.close(fig)
         buf.seek(0)
+        logging.debug("Loading buf (%fs)" % (time.time()-then))
         image =  Image.open(buf)
+        logging.debug("Loaded buf (%fs)" % (time.time()-then))
         d = ImageDraw.Draw(image)
+        del buf
         d.fontmode = '1'
         d.rectangle((0,0,w-1,h-1), outline='#808080')
                 
-        logging.debug("Drew tracks (%s %s)" % (w,h))
+        logging.debug("Drew tracks (%fs) (%s %s)" % (time.time()-then, w,h))
         # draw peers
         i = 1
         for p, info in self.peers.items():
@@ -379,7 +389,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
                 yoff = int(0 if (y-tbox[3]) > 0 else tbox[3])
                 d.text((x+xoff,h-(y+yoff)), data.get('name', "XXX"), fill=pc, font=self.font)
-                logging.debug("Plot peer: %s, %s" % (p, data))
+                logging.info("Plot peer (%fs): %s, %s" % (time.time()-then, p, data))
                 i += 1
 
         # draw me
@@ -424,7 +434,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.image = image
       except Exception as e:
           logging.exception(e)
-      logging.debug("Updated %s %s" % (w,h))
+      logging.debug("Updated (%fs) %s %s" % (time.time()-then,w,h))
       self.occupado = False
 
     def draw(self, canvas, drawer):
@@ -645,7 +655,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     GPIO.cleanup(pin)
                 except Exception as e:
                     logging.exception("GPIO cleanup %s: %s" % (pin, e))
-
+        logging.info("Unloaded")
 
     def on_ui_setup(self, ui):
         self._ui = ui
