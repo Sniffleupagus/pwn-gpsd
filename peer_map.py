@@ -5,8 +5,13 @@ from pwnagotchi.ui.components import *
 import pwnagotchi.ui.fonts as fonts
 from pwnagotchi.mesh.peer import Peer
 
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+
 import _thread
 from threading import Event
+
+from io import BytesIO
 
 import os
 import glob
@@ -19,6 +24,12 @@ except Exception as e:
     logging.warning("Install orjson with pip to get better json performance")
     import json
 
+try:
+    import cartopy.crs as ccrs
+except Exception as e:
+    logging.warning("Install cartopy with pip to get better maps")
+    ccrs = None
+    
 import random
 import hashlib
 import base64
@@ -137,10 +148,10 @@ class gpsTrack:
             return None
         return self.points[-1]
             
-    def loadFromFile(self, filename, ifUpdated=True):
+    def loadFromFile(self, filename, ifUpdated=True, ifOlderThan=10):
         try:
             now = time.time()
-            if now - self.mtime < 10:
+            if now - self.mtime < ifOlderThan:
                 # wait at least 10 seconds between reloads
                 return False
             if filename and os.path.isfile(filename):
@@ -162,7 +173,7 @@ class gpsTrack:
                                 
                         except Exception as e:
                             logging.error("- skip line: %s" % e)
-                    logging.info("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
+                    logging.debug("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.points), tmp.bounds))
                     if len(tmp.points):
                         self.points = tmp.points
                         self.bounds = tmp.bounds
@@ -176,8 +187,8 @@ class gpsTrack:
             logging.exception(e)
         return False
 
-    def reloadFile(self):
-        return self.loadFromFile(self.filename)
+    def reloadFile(self, ifOlderThan=0):
+        return self.loadFromFile(self.filename, ifOlderThan=ifOlderThan)
 
 class Peer_Map(plugins.Plugin, Widget):
     __author__ = 'Sniffleupagus'
@@ -201,7 +212,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.t_dir = None
         self.font = None
         self.touch_info = {}
-        self.zoom_multiplier = 1
+        self.zoom_multiplier = 256
         self.gpio = None
         self.window_size = None
         self.keep_going = True
@@ -251,7 +262,6 @@ class Peer_Map(plugins.Plugin, Widget):
             except Exception as e:
                 logging.exception("PM_Drawer: %s" % (e))
         logging.info("peer_map out")
-
     def updateImage(self):
       try:
         if self.occupado or not self._ui:
@@ -261,11 +271,11 @@ class Peer_Map(plugins.Plugin, Widget):
         w = self.xy[2]-self.xy[0]
         h = self.xy[3]-self.xy[1]
 
-        image = Image.new('RGBA', (w,h), self.bgcolor)
+        #image = Image.new('RGBA', (w,h), self.bgcolor)
 
-        d = ImageDraw.Draw(image)
-        d.fontmode = '1'
-        d.rectangle((0,0,w-1,h-1), fill=self.bgcolor, outline='#808080')
+        #d = ImageDraw.Draw(image)
+        #d.fontmode = '1'
+        #d.rectangle((0,0,w-1,h-1), fill=self.bgcolor, outline='#808080')
 
         # compute lon/lat boundaries
         if self.me and self.me.bounds:
@@ -309,6 +319,14 @@ class Peer_Map(plugins.Plugin, Widget):
         map_bbox = [midpoint[0] - (w/2)/scale, midpoint[1] - (h/2)/scale,
                     midpoint[0] + (w/2)/scale, midpoint[1] + (h/2)/scale]
 
+        dpi = mpl.rcParams["figure.dpi"]
+        linewidth = dpi/72.0 * 0.1
+        fig = plt.figure(figsize=(w/dpi, h/dpi))
+        fig.tight_layout()
+        plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+        plt.xlim(map_bbox[0], map_bbox[2])
+        plt.ylim(map_bbox[1], map_bbox[3])
+        logging.debug("DPI = %s, w = %s, h = %s, gca = %s" % (dpi, w, h, fig.gca()))
         # draw tracks
         i = 0
         for f in sorted(self.tracks):
@@ -319,13 +337,31 @@ class Peer_Map(plugins.Plugin, Widget):
                 lp = None
                 color = self.track_colors[i % len(self.track_colors)]
                 logging.debug("Scale: %s, %s, map box: %s" % (scale, color, map_bbox))
-                for p in t.points:
-                    x = (p['lon'] - midpoint[0]) * scale + w/2
-                    y = (p['lat'] - midpoint[1]) * scale + h/2
-                    #logging.info("Point:(%s %s), (%s %s)" % (p['lon'],x, p['lat'],y))
-                    d.point((x, h-y), fill = color)
+                if True: # usematplotlib
+                    lats = [p['lat'] for p in t.points]
+                    lons = [p['lon'] for p in t.points]
+                    #plt.plot(lons, lats, linestyle='-', linewidth=linewidth, color=color)
+                    plt.plot(lons, lats, marker=',', markersize=linewidth, linewidth=0, markeredgecolor='none', color=color, antialiased=False)
+                else:
+                    for p in t.points:
+                        x = (p['lon'] - midpoint[0]) * scale + w/2
+                        y = (p['lat'] - midpoint[1]) * scale + h/2
+                        #logging.info("Point:(%s %s), (%s %s)" % (p['lon'],x, p['lat'],y))
+                        d.point((x, h-y), fill = color)
                 i += 1
 
+        # convert matplotlib fig to PIL image
+        plt.yticks(fontsize=8)
+        plt.xticks(fontsize=8)
+        plt.axis('off')
+        buf = BytesIO()
+        fig.savefig(buf, pad_inches=0, bbox_inches='tight')
+        buf.seek(0)
+        image =  Image.open(buf)
+        d = ImageDraw.Draw(image)
+        d.fontmode = '1'
+        d.rectangle((0,0,w-1,h-1), outline='#808080')
+                
         logging.debug("Drew tracks")
         # draw peers
         i = 1
@@ -386,7 +422,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.image = image
       except Exception as e:
           logging.exception(e)
-      logging.debug("Updated")
+      logging.debug("Updated %s %s" % (w,h))
       self.occupado = False
 
     def draw(self, canvas, drawer):
@@ -403,10 +439,10 @@ class Peer_Map(plugins.Plugin, Widget):
             try:
                 canvas.paste(self.image.convert(canvas.mode), self.xy)
             except Exception as e:
-                logging.error("Paste: %s: %s" % (self.xy, e))
+                logging.error("Paste: %s, %s: %s" % (self.xy, self.image.size, e))
                 self.image = self.image.resize((self.xy[2]-self.xy[0], self.xy[3]-self.xy[1]))
                 try:
-                    canvas.paste(self.image.convert(canvas.mode), self.xy)
+                    canvas.paste(self.image.convert(canvas.mode), (self.xy[0], self.xy[1]))
                     self.redrawImage = True
                     self.trigger_redraw.set()
                 except Exception as e2:
@@ -415,7 +451,7 @@ class Peer_Map(plugins.Plugin, Widget):
 
     def on_loaded(self):
       try:
-        logging.info("peer_map loaded with options %s" % (self.options))
+        logging.debug("peer_map loaded with options %s" % (self.options))
         self.password = self.options.get('password', None)
         if self.password:
             self.fernet = Fernet(self.generateKey())
@@ -677,11 +713,12 @@ class Peer_Map(plugins.Plugin, Widget):
             logging.debug("My location changed")
             self.redrawImage = True
             
+        # check tracks less often
         for f in sorted(self.tracks):
             logging.debug("Checking %s" % f)
             t = self.tracks[f]
 
-            if t.visible and t.reloadFile():
+            if t.visible and t.reloadFile(ifOlderThan=30):
                 logging.debug("%s CHANGED" % f)
                 self.redrawImage = True
 
@@ -857,7 +894,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     ret += '<li>Zoom Factor<input type=number id="zf" name="zf" min="1" max=2000" value="%d" />\n' % self.zoom_multiplier
 
                     for o in self.options:
-                        logging.info("option %s -> %s" % (o, self.options[o]))
+                        logging.debug("option %s -> %s" % (o, self.options[o]))
                         t = type(o).__name__
                         if t in ["int", "float", "str", "bool"]:
                             ret += '<li>%s<input type=text name="%s:%s" value="%s">\n' % (o, o, t, self.options[o])
