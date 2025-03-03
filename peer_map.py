@@ -356,6 +356,8 @@ class Peer_Map(plugins.Plugin, Widget):
         plt.axis('off')
         buf = BytesIO()
         fig.savefig(buf, pad_inches=0, bbox_inches='tight')
+        plt.clf()
+        plt.close("all")
         buf.seek(0)
         image =  Image.open(buf)
         d = ImageDraw.Draw(image)
