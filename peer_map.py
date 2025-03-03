@@ -320,7 +320,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     midpoint[0] + (w/2)/scale, midpoint[1] + (h/2)/scale]
 
         dpi = mpl.rcParams["figure.dpi"]
-        linewidth = dpi/72.0 * 0.1
+        linewidth = dpi * 0.1
         fig = plt.figure(figsize=(w/dpi, h/dpi))
         fig.tight_layout()
         plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
@@ -362,7 +362,7 @@ class Peer_Map(plugins.Plugin, Widget):
         d.fontmode = '1'
         d.rectangle((0,0,w-1,h-1), outline='#808080')
                 
-        logging.debug("Drew tracks")
+        logging.debug("Drew tracks (%s %s)" % (w,h))
         # draw peers
         i = 1
         for p, info in self.peers.items():
@@ -436,17 +436,20 @@ class Peer_Map(plugins.Plugin, Widget):
             self.image = im
                         
         if self.image and self.xy:
+            w = self.xy[2]-self.xy[0]
+            h = self.xy[3]-self.xy[1]
             try:
                 canvas.paste(self.image.convert(canvas.mode), self.xy)
             except Exception as e:
-                logging.error("Paste: %s, %s: %s" % (self.xy, self.image.size, e))
+                logging.error("Paste: %s, %s, (%s, %s): %s" % (self.xy, self.image.size, w, h, e))
                 self.image = self.image.resize((self.xy[2]-self.xy[0], self.xy[3]-self.xy[1]))
                 try:
                     canvas.paste(self.image.convert(canvas.mode), (self.xy[0], self.xy[1]))
                     self.redrawImage = True
                     self.trigger_redraw.set()
+                    #self.image = None
                 except Exception as e2:
-                    logging.exception("Resized error: %s" % e)
+                    logging.exception("Resized error: %s" % e2)
 
 
     def on_loaded(self):
