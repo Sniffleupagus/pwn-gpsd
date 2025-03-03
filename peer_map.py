@@ -212,7 +212,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.t_dir = None
         self.font = None
         self.touch_info = {}
-        self.zoom_multiplier = 256
+        self.zoom_multiplier = 1
         self.gpio = None
         self.window_size = None
         self.keep_going = True
