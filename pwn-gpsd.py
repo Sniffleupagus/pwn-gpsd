@@ -767,7 +767,7 @@ if __name__ == "__main__":
                                         continue
                                     logging.info("\t%s = %s" % (k, data[k]))
                             elif m_class == 'DEVICE':
-                                print("GPSD> %s" % raw.strip())
+                                logging.debug("GPSD> %s" % raw.strip())
                                 for cl in client_sockets.keys():
                                     if client_sockets[cl].watch.get('enable', False):
                                         queue_message_for(cl, raw)
@@ -876,7 +876,7 @@ if __name__ == "__main__":
                                     logging.debug("Keeping remote loc")
                                 else:
                                     if data.get('mode',0) >= last.get('mode',0) and raw != messages_archive.get(m_class, ""):
-                                        logging.info("updating %s location %s - %s" % (m_class, raw.strip(), last))
+                                        logging.debug("updating %s location %s - %s" % (m_class, raw.strip(), last))
                                         messages_archive[m_class] = raw
                             else:
                                 messages_archive[m_class] = raw
