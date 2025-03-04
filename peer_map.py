@@ -175,7 +175,7 @@ class gpsTrack:
                             tmp.addPoint(tpv)
                                 
                         except Exception as e:
-                            logging.error("- skip line: %s" % e)
+                            logging.error("- skip line: %s %s" % (os.path.basename(filename), e))
                     logging.debug("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.lats), tmp.bounds))
                     if len(tmp.lats):
                         self.bounds = tmp.bounds
@@ -389,7 +389,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
                 yoff = int(0 if (y-tbox[3]) > 0 else tbox[3])
                 d.text((x+xoff,h-(y+yoff)), data.get('name', "XXX"), fill=pc, font=self.font)
-                logging.info("Plot peer (%fs): %s, %s" % (time.time()-then, p, data))
+                logging.debug("Plot peer (%fs): %s, %s" % (time.time()-then, p, data))
                 i += 1
 
         # draw me
@@ -435,6 +435,8 @@ class Peer_Map(plugins.Plugin, Widget):
       except Exception as e:
           logging.exception(e)
       logging.debug("Updated (%fs) %s %s" % (time.time()-then,w,h))
+      self._ui.set('peer_map', time.time())
+
       self.occupado = False
 
     def draw(self, canvas, drawer):
