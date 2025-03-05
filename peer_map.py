@@ -5,8 +5,12 @@ from pwnagotchi.ui.components import *
 import pwnagotchi.ui.fonts as fonts
 from pwnagotchi.mesh.peer import Peer
 
-import matplotlib.pyplot as plt
-import matplotlib as mpl
+try:
+    import matplotlib.pyplot as plt
+    import matplotlib as mpl
+except Exception as e:
+    logging.warning("Install matplotlib with pip to get better performance")
+    plt = None
 
 import _thread
 from threading import Event
@@ -26,6 +30,7 @@ except Exception as e:
 
 try:
     import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
 except Exception as e:
     logging.warning("Install cartopy with pip to get better maps")
     ccrs = None
@@ -220,7 +225,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.t_dir = None
         self.font = None
         self.touch_info = {}
-        self.zoom_multiplier = 1
+        self.zoom_multiplier = 0.9
         self.gpio = None
         self.window_size = None
         self.keep_going = True
@@ -260,9 +265,9 @@ class Peer_Map(plugins.Plugin, Widget):
                     if self.redrawImage:
                         logging.debug("Redrawing image")
                         now = time.time()
-                        self.redrawImage = False
                         self.updateImage()
-                        logging.debug("Redrew map in %fs" % (time.time() - now))
+                        self.redrawImage = False
+                        logging.info("Redrew map in %fs" % (time.time() - now))
                     else:
                         self.trigger_redraw.wait(timeout=1)
                 else:
@@ -323,91 +328,132 @@ class Peer_Map(plugins.Plugin, Widget):
         if self.zoom_multiplier > 1 and self.me.bounds:
             midpoint = [self.me.bounds[0], self.me.bounds[1]]
 
-        map_bbox = [midpoint[0] - (w/2)/scale, midpoint[1] - (h/2)/scale,
-                    midpoint[0] + (w/2)/scale, midpoint[1] + (h/2)/scale]
+        map_bbox = [midpoint[0] - (w/2.0)/scale, midpoint[1] - (h/2.0)/scale,
+                    midpoint[0] + (w/2.0)/scale, midpoint[1] + (h/2.0)/scale]
 
         dpi = mpl.rcParams["figure.dpi"]
         mpl.rcParams["path.simplify"] = True
         linewidth = dpi * 0.1
-        fig = plt.figure(figsize=(w/dpi, h/dpi))
-        fig.tight_layout()
-        plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
-        plt.xlim(map_bbox[0], map_bbox[2])
-        plt.ylim(map_bbox[1], map_bbox[3])
+        if plt:
+            fig = plt.figure(figsize=(w/dpi, h/dpi))
+            fig.tight_layout()
+            plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+            plt.xlim(map_bbox[0], map_bbox[2])
+            plt.ylim(map_bbox[1], map_bbox[3])
+            if ccrs:
+                ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
+                #ax.stock_img()
+                #ax.coastlines()
+                try:
+                    wlon = map_bbox[2]-map_bbox[0]
+                    if wlon < 10:
+                        fscale = '10m'
+                    elif wlon < 50.0:
+                        fscale = '50m'
+                    else:
+                        fscale = '110m'
+                    ax.add_feature(cfeature.OCEAN.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
+                    ax.add_feature(cfeature.LAND.with_scale('50m'), zorder=1, linewidth=.1, edgecolor='b')
+                    ax.add_feature(cfeature.LAKES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue', alpha=0.5)
+                    ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='b')
+                    ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.5, edgecolor='r', linestyle=':', alpha=0.7)
+                    #ax.add_feature(cfeature.GSHHSFeature(), zorder=3, linewidth=.1, edgecolor='b')
+                    logging.info("Finished features")
+                except Exception as e:
+                    logging.exception(e)
+        else:
+            # use PIL
+            image = Image.new('RGBA', (w,h), self.bgcolor)
+            d = ImageDraw.Draw(image)
+            d.fontmode = '1'
+            d.rectangle((0,0,w-1,h-1), fill=self.bgcolor, outline='#808080')
+
         logging.debug("DPI = %s, w = %s, h = %s, gca = %s" % (dpi, w, h, fig.gca()))
         # draw tracks
         i = 0
         for f in sorted(self.tracks):
             t = self.tracks[f]
-            if t.visible and boxesOverlap( map_bbox, t.bounds):
+            if t.visible and boxesOverlap( map_bbox, t.bounds) and self.keep_going:
                 # visible and overlaps, so plot it
                 logging.debug("Plotting %s %s" % (f, t.bounds))
                 lp = None
                 color = self.track_colors[i % len(self.track_colors)]
                 logging.debug("Scale: %s, %s, map box: %s" % (scale, color, map_bbox))
-                if True: # usematplotlib
-                    #plt.plot(t.lons, t.lats, linestyle='-', linewidth=linewidth, color=color)
+                if plt:
                     try:
-                        plt.plot(t.lons, t.lats, marker=',', markersize=linewidth, linewidth=0, markeredgecolor='none', color=color, antialiased=False)
+                        logging.debug("Plotting (%fs) %d, %d %s %s" % (time.time()-then, len(t.lons), len(t.lats), f, color))
+                        plt.plot(t.lons, t.lats, zorder=4, marker=',', markersize=linewidth, linewidth=0, markeredgecolor='none', color=color, antialiased=False)
                     except Exception as e:
                         logging.exception("Plot: Lats %d, lons %d, err: %s" % (len(lats), len(lons), e))
                 else:
                     for p in t.points:
                         x = (p['lon'] - midpoint[0]) * scale + w/2
                         y = (p['lat'] - midpoint[1]) * scale + h/2
-                        #logging.info("Point:(%s %s), (%s %s)" % (p['lon'],x, p['lat'],y))
                         d.point((x, h-y), fill = color)
                 i += 1
                 logging.debug("Track (%fs) %d, %d %s" % (time.time()-then, len(t.lons), len(t.lats), f))
-        # convert matplotlib fig to PIL image
-        plt.yticks(fontsize=8)
-        plt.xticks(fontsize=8)
-        plt.axis('off')
-        logging.debug("Doing buf (%fs)" % (time.time()-then))
-        buf = BytesIO()
-        fig.savefig(buf, pad_inches=0, bbox_inches='tight')
-        plt.clf()
-        plt.close(fig)
-        buf.seek(0)
-        logging.debug("Loading buf (%fs)" % (time.time()-then))
-        image =  Image.open(buf)
-        logging.debug("Loaded buf (%fs)" % (time.time()-then))
-        d = ImageDraw.Draw(image)
-        del buf
-        d.fontmode = '1'
-        d.rectangle((0,0,w-1,h-1), outline='#808080')
-                
         logging.debug("Drew tracks (%fs) (%s %s)" % (time.time()-then, w,h))
+
         # draw peers
         i = 1
         for p, info in self.peers.items():
             data = info.get('tpv', {})
                     
             if 'lat' in data and 'lon' in data:
-                x = (data['lon'] - midpoint[0]) * scale + w/2
-                y = (data['lat'] - midpoint[1]) * scale + h/2
                 pc = self.peer_colors[i % len(self.peer_colors)]
-                d.ellipse((x-1, h-y-1, x+1, h-y+1), fill=pc)
-                tbox = self.font.getbbox(data.get('name', "XXX"))
-                xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
-                yoff = int(0 if (y-tbox[3]) > 0 else tbox[3])
-                d.text((x+xoff,h-(y+yoff)), data.get('name', "XXX"), fill=pc, font=self.font)
+                if plt:
+                    plt.plot(data['lon'], data['lat'], zorder=5, marker='o', markersize=2, color=pc)
+                    plt.text(data['lon'], data['lat'], data.get('name', 'xxx'), va='top', ha='left', zorder=5, color=pc)
+                else:
+                    x = (data['lon'] - midpoint[0]) * scale + w/2
+                    y = (data['lat'] - midpoint[1]) * scale + h/2
+                    d.ellipse((x-1, h-y-1, x+1, h-y+1), fill=pc)
+                    tbox = self.font.getbbox(data.get('name', "XXX"))
+                    xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
+                    yoff = int(0 if (y-tbox[3]) > 0 else tbox[3])
+                    d.text((x+xoff,h-(y+yoff)), data.get('name', "XXX"), fill=pc, font=self.font)
+
                 logging.debug("Plot peer (%fs): %s, %s" % (time.time()-then, p, data))
                 i += 1
 
         # draw me
         if self.me and self.me.bounds:
             logging.debug("Me: %s" % (self.me.bounds))
-            x = (self.me.bounds[0] - midpoint[0]) * scale + w/2
-            y = (self.me.bounds[1] - midpoint[1]) * scale + h/2
-            d.ellipse((x-1, h-y-1, x+1, h-y+1), fill=self.peer_colors[0])
-            tbox = self.font.getbbox("me")
-            xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
-            yoff = int(0 if (y-tbox[3]) > 0 else tbox[3]+2)
+            data = self.me.lastPoint()
+            if plt:
+                plt.plot(data['lon'], data['lat'], zorder=5, marker='o', markersize=2, color='red')
+                plt.text(data['lon'], data['lat'], 'me', va='top', ha='right', zorder=5, color='Red')
+            else:
+                # without matplotlib
+                x = (self.me.bounds[0] - midpoint[0]) * scale + w/2
+                y = (self.me.bounds[1] - midpoint[1]) * scale + h/2
+                d.ellipse((x-1, h-y-1, x+1, h-y+1), fill=self.peer_colors[0])
+                tbox = self.font.getbbox("me")
+                xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
+                yoff = int(0 if (y-tbox[3]) > 0 else tbox[3]+2)
 
-            logging.debug("Offset: %s %s = %s" % (xoff, yoff, self.color))
-            d.text((x+xoff,h-(y+yoff)), "me", fill=self.color, font=self.font)
+            #logging.debug("Offset: %s %s = %s" % (xoff, yoff, self.color))
+            #d.text((x+xoff,h-(y+yoff)), "me", fill=self.color, font=self.font)
 
+        # convert matplotlib fig to PIL image
+        if plt:
+            plt.yticks(fontsize=8)
+            plt.xticks(fontsize=8)
+            plt.axis('off')
+            logging.info("Doing buf (%fs)" % (time.time()-then))
+            buf = BytesIO()
+            fig.savefig(buf, pad_inches=0, bbox_inches='tight')
+            plt.clf()
+            plt.close(fig)
+            buf.seek(0)
+            logging.debug("Loading buf (%fs)" % (time.time()-then))
+            image =  Image.open(buf)
+            logging.info("Loaded buf (%fs)" % (time.time()-then))
+            del buf
+            d = ImageDraw.Draw(image)
+            d.fontmode = '1'
+            d.rectangle((0,0,w-1,h-1), outline='#808080')
+                
         # draw legend and grid on full screen
         if self.window_size:
             try:
@@ -557,7 +603,7 @@ class Peer_Map(plugins.Plugin, Widget):
         if not self._ui:
             return
     
-        if self.window_size:
+        if True or self.window_size:
             self.zoom_multiplier *= 2
         else:
             self.window_size = self.xy.copy()
@@ -575,7 +621,7 @@ class Peer_Map(plugins.Plugin, Widget):
         if not self._ui:
             return
 
-        if self.zoom_multiplier >1.0:
+        if True and self.zoom_multiplier >0.001:
             self.zoom_multiplier /= 2
         elif self.window_size:
             self.xy = self.window_size.copy()
@@ -859,8 +905,8 @@ class Peer_Map(plugins.Plugin, Widget):
                 try:
                     logging.info("Args: %s" % (repr(request.args)))
                     zf = int(request.args.get('zf', self.zoom_multiplier))
-                    if zf < 1:
-                        zf = 1       
+                    #if zf < 1:
+                    #    zf = 1       
                     if zf != self.zoom_multiplier:
                         self.zoom_multiplier = zf
                         self.redrawImage = True
@@ -911,7 +957,7 @@ class Peer_Map(plugins.Plugin, Widget):
                         except Exception as e:
                             ret += "<li>Error on zoom multiplier: %s" % e
                             
-                    ret += '<li>Zoom Factor<input type=number id="zf" name="zf" min="1" max=2000" value="%d" />\n' % self.zoom_multiplier
+                    ret += '<li>Zoom Factor<input type=number id="zf" name="zf" step=".001" value="%f" />\n' % self.zoom_multiplier
 
                     for o in self.options:
                         logging.debug("option %s -> %s" % (o, self.options[o]))
