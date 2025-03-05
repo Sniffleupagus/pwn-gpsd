@@ -185,7 +185,6 @@ class gpsTrack:
                         self.lats = tmp.lats.copy()
                         self.last_point = tmp.last_point
                         del tmp
-                        logging.info("Got here ok %s" % filename)
                         return True
                 return False
             else:
