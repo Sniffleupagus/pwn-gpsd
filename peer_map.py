@@ -112,7 +112,7 @@ class gpsTrack:
     name = None
     filename = None
     mtime = 0
-    last_point = {}   # GPSD TPV structures
+    last_point = None   # GPSD TPV structures
     lons = []     # array of longitudes cached from tpvs
     lats = []     # array of latitudes taken from tpvs
     bounds = None
@@ -127,6 +127,7 @@ class gpsTrack:
 
         if filename:
             self.loadFromFile(filename)
+            logging.debug("Loaded %s %s" % (len(self.lats), filename))
 
     def addPoint(self, tpv):
         if 'lat' in tpv and 'lon' in tpv:
@@ -147,6 +148,7 @@ class gpsTrack:
             if lat > self.bounds[3]: self.bounds[3] = lat
 
     def lastPoint(self):
+        logging.debug("LAST POINT IS %s (%s)" % (self.last_point, len(self.lats)))
         return self.last_point
             
     def loadFromFile(self, filename, ifUpdated=True, ifOlderThan=10):
@@ -181,8 +183,9 @@ class gpsTrack:
                         self.bounds = tmp.bounds
                         self.lons = tmp.lons.copy()
                         self.lats = tmp.lats.copy()
+                        self.last_point = tmp.last_point
                         del tmp
-
+                        logging.info("Got here ok %s" % filename)
                         return True
                 return False
             else:
@@ -202,6 +205,7 @@ class Peer_Map(plugins.Plugin, Widget):
     __description__ = 'Plot gps tracks on pwnagotchi screen'
 
     def __init__(self):
+        super().__init__(None)
         self._agent = None
         self._ui = None
         self.password = "Friendship"
@@ -445,7 +449,7 @@ class Peer_Map(plugins.Plugin, Widget):
             h = self.xy[3]-self.xy[1]
             im = Image.new('RGBA', (w,h), self.bgcolor)
             d = ImageDraw.Draw(im)
-            d.rectangle((0,0,w-1,h-1), fill=self.bgcolor, outline='#808080')
+            d.rectangle((0,0,w-1,h-1), outline='#808080')
             d.text((w/2,h/2), "Peer Map", anchor="mm", font=self.font, fill=self.color)
             self.image = im
                         
@@ -490,7 +494,7 @@ class Peer_Map(plugins.Plugin, Widget):
         fname = os.path.join(self.t_dir, "current.txt")
         if os.path.isfile(fname):
             self.me = gpsTrack("current", fname, True, True)
-            logging.debug("Read my location: %s" % (self.me.bounds))
+            logging.info("Read my location: %s" % (self.me.lastPoint()))
             self.redrawImage = True
             self.trigger_redraw.set()
 
