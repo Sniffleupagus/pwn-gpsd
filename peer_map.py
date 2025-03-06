@@ -373,7 +373,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     ax.add_feature(cfeature.LAND.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
                     ax.add_feature(cfeature.LAKES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue', alpha=0.5)
                     ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='Blue')
-                    ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.5, edgecolor='r', linestyle=':', alpha=0.7)
+                    ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.5, edgecolor='Grey', linestyle=':', alpha=0.7)
                     #ax.add_feature(cfeature.GSHHSFeature(), zorder=3, linewidth=.1, edgecolor='b')
                     logging.debug("Finished features (%fs)" % (time.time()-then))
                 except Exception as e:
@@ -439,7 +439,7 @@ class Peer_Map(plugins.Plugin, Widget):
             data = self.me.lastPoint()
             if plt:
                 plt.plot(data['lon'], data['lat'], zorder=5, marker='o', markersize=2, color='red')
-                plt.text(data['lon'], data['lat'], 'me', va='top', ha='right', zorder=5, color='Red')
+                plt.text(data['lon'], data['lat'], 'me', va='top', ha='right', zorder=5, color='Red', fontsize=8)
             else:
                 # without matplotlib
                 x = (self.me.bounds[0] - midpoint[0]) * scale + w/2
