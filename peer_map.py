@@ -536,6 +536,9 @@ class Peer_Map(plugins.Plugin, Widget):
                     logging.exception("Resized error: %s" % e2)
 
 
+    def on_ready(self, agent):
+        self._agent = agent
+
     def on_loaded(self):
       try:
         logging.debug("peer_map loaded with options %s" % (self.options))
@@ -557,12 +560,6 @@ class Peer_Map(plugins.Plugin, Widget):
             self.redrawImage = True
             self.trigger_redraw.set()
 
-      except Exception as e:
-          logging.exception(e)
-
-    def on_ready(self, agent):
-      try:
-        self._agent = agent
 
         now = datetime.now()
 
@@ -730,6 +727,8 @@ class Peer_Map(plugins.Plugin, Widget):
 
     def on_ui_setup(self, ui):
         self._ui = ui
+        if not self._agent:
+          self._agent = ui._agent
         try:
             self.xy = self.options.get("pos", [170,42,250,100])
             self.color = self.options.get("color", "white")
