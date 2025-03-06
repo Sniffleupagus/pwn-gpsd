@@ -9,10 +9,19 @@ try:
     import matplotlib.pyplot as plt
     import matplotlib as mpl
 except Exception as e:
-    logging.warning("Install matplotlib with pip to get better performance")
+    logging.warning("Install matplotlib to get better performance")
+    logging.warning("\t sudo apt-install python3-matplotlib")
     plt = None
 
-import _thread
+try:
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+except Exception as e:
+    logging.warning("Install cartopy to get better maps")
+    logging.warning("\t sudo apt-install python3-cartopy python-cartopy-data")
+    ccrs = None
+
+import threading
 from threading import Event
 
 from io import BytesIO
@@ -28,13 +37,6 @@ except Exception as e:
     logging.warning("Install orjson with pip to get better json performance")
     import json
 
-try:
-    import cartopy.crs as ccrs
-    import cartopy.feature as cfeature
-except Exception as e:
-    logging.warning("Install cartopy with pip to get better maps")
-    ccrs = None
-    
 import random
 import hashlib
 import base64
@@ -182,7 +184,7 @@ class gpsTrack:
                             tmp.addPoint(tpv)
                                 
                         except Exception as e:
-                            logging.error("- skip line: %s %s" % (os.path.basename(filename), e))
+                            logging.debug("- skip line: %s %s" % (os.path.basename(filename), e))
                     logging.debug("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.lats), tmp.bounds))
                     if len(tmp.lats):
                         self.bounds = tmp.bounds
@@ -267,15 +269,17 @@ class Peer_Map(plugins.Plugin, Widget):
                         now = time.time()
                         self.updateImage()
                         self.redrawImage = False
-                        logging.info("Redrew map in %fs" % (time.time() - now))
+                        if time.time() - now > 10:
+                            logging.warn("Slow redraw %fs" % (time.time() - now))
+                        time.sleep(5)
                     else:
-                        self.trigger_redraw.wait(timeout=1)
+                        self.trigger_redraw.wait(timeout=2)
                 else:
                     logging.debug("timeout")
-                    self.trigger_redraw.wait(timeout=1)
+                    self.trigger_redraw.wait(timeout=2)
             except Exception as e:
                 logging.exception("PM_Drawer: %s" % (e))
-        logging.info("peer_map out")
+        logging.debug("peer_map drawing thread exiting")
 
     def updateImage(self):
       try:
@@ -321,27 +325,34 @@ class Peer_Map(plugins.Plugin, Widget):
         bounds[1] -= 0.0001
         sh = bounds[3] - bounds[1]
 
-        logging.debug("Final bounds(%fs): %s" % (time.time()-then, bounds))
+        logging.debug("Final w=%s, h=%s,  bounds(%fs): %s" % (w,h, time.time()-then, bounds))
 
-        scale = min(w/sw, h/sh) * self.zoom_multiplier    # pixels per map unit
+        scale = min((w)/sw, (h)/sh) * self.zoom_multiplier    # pixels per map unit
         midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
         if self.zoom_multiplier > 1 and self.me.bounds:
             midpoint = [self.me.bounds[0], self.me.bounds[1]]
 
-        map_bbox = [midpoint[0] - (w/2.0)/scale, midpoint[1] - (h/2.0)/scale,
-                    midpoint[0] + (w/2.0)/scale, midpoint[1] + (h/2.0)/scale]
-
-        dpi = mpl.rcParams["figure.dpi"]
-        mpl.rcParams["path.simplify"] = True
-        linewidth = dpi * 0.1
+        map_bbox = [midpoint[0] - ((w)/2.0)/scale, midpoint[1] - ((h)/2.0)/scale,
+                    midpoint[0] + ((w)/2.0)/scale, midpoint[1] + ((h)/2.0)/scale]
+        fig = None
+        ax = None
+        image = None
         if plt:
-            fig = plt.figure(figsize=(w/dpi, h/dpi))
+            dpi = mpl.rcParams["figure.dpi"]
+            mpl.rcParams["path.simplify"] = True
+            linewidth = dpi * 0.1
+            fig = plt.figure(figsize=((w)/dpi, (h)/dpi), facecolor='LightBlue')
+            ax = fig.add_subplot(1, 1, 1) if not ccrs else fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
+
             fig.tight_layout()
             plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+            plt.xticks([])
+            plt.yticks([])
+            plt.axis('off')
             plt.xlim(map_bbox[0], map_bbox[2])
             plt.ylim(map_bbox[1], map_bbox[3])
+            logging.debug("DPI = %s, w = %s, h = %s, gca = %s" % (dpi, w, h, fig.gca()))
             if ccrs:
-                ax = fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
                 #ax.stock_img()
                 #ax.coastlines()
                 try:
@@ -352,23 +363,24 @@ class Peer_Map(plugins.Plugin, Widget):
                         fscale = '50m'
                     else:
                         fscale = '110m'
-                    ax.add_feature(cfeature.OCEAN.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
-                    ax.add_feature(cfeature.LAND.with_scale('50m'), zorder=1, linewidth=.1, edgecolor='b')
+                    #ax.coastlines()
+                    #ax.add_feature(cfeature.OCEAN.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
+                    ax.add_feature(cfeature.LAND.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
                     ax.add_feature(cfeature.LAKES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue', alpha=0.5)
-                    ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='b')
+                    ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='Blue')
                     ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.5, edgecolor='r', linestyle=':', alpha=0.7)
                     #ax.add_feature(cfeature.GSHHSFeature(), zorder=3, linewidth=.1, edgecolor='b')
-                    logging.info("Finished features")
+                    logging.debug("Finished features (%fs)" % (time.time()-then))
                 except Exception as e:
                     logging.exception(e)
         else:
             # use PIL
+            logging.debug("PIL")
             image = Image.new('RGBA', (w,h), self.bgcolor)
             d = ImageDraw.Draw(image)
             d.fontmode = '1'
             d.rectangle((0,0,w-1,h-1), fill=self.bgcolor, outline='#808080')
 
-        logging.debug("DPI = %s, w = %s, h = %s, gca = %s" % (dpi, w, h, fig.gca()))
         # draw tracks
         i = 0
         for f in sorted(self.tracks):
@@ -386,9 +398,9 @@ class Peer_Map(plugins.Plugin, Widget):
                     except Exception as e:
                         logging.exception("Plot: Lats %d, lons %d, err: %s" % (len(lats), len(lons), e))
                 else:
-                    for p in t.points:
-                        x = (p['lon'] - midpoint[0]) * scale + w/2
-                        y = (p['lat'] - midpoint[1]) * scale + h/2
+                    for p in range(len(t.lons)):
+                        x = (t.lons[p] - midpoint[0]) * scale + w/2
+                        y = (t.lats[p] - midpoint[1]) * scale + h/2
                         d.point((x, h-y), fill = color)
                 i += 1
                 logging.debug("Track (%fs) %d, %d %s" % (time.time()-then, len(t.lons), len(t.lats), f))
@@ -431,28 +443,29 @@ class Peer_Map(plugins.Plugin, Widget):
                 tbox = self.font.getbbox("me")
                 xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
                 yoff = int(0 if (y-tbox[3]) > 0 else tbox[3]+2)
-
-            #logging.debug("Offset: %s %s = %s" % (xoff, yoff, self.color))
-            #d.text((x+xoff,h-(y+yoff)), "me", fill=self.color, font=self.font)
+                logging.debug("Offset: %s %s = %s" % (xoff, yoff, self.color))
+                d.text((x+xoff,h-(y+yoff)), "me", fill=self.color, font=self.font)
 
         # convert matplotlib fig to PIL image
         if plt:
-            plt.yticks(fontsize=8)
-            plt.xticks(fontsize=8)
-            plt.axis('off')
-            logging.info("Doing buf (%fs)" % (time.time()-then))
-            buf = BytesIO()
-            fig.savefig(buf, pad_inches=0, bbox_inches='tight')
-            plt.clf()
-            plt.close(fig)
-            buf.seek(0)
-            logging.debug("Loading buf (%fs)" % (time.time()-then))
-            image =  Image.open(buf)
-            logging.info("Loaded buf (%fs)" % (time.time()-then))
-            del buf
-            d = ImageDraw.Draw(image)
-            d.fontmode = '1'
-            d.rectangle((0,0,w-1,h-1), outline='#808080')
+            try:
+                logging.debug("Doing buf (%fs)" % (time.time()-then))
+                buf = BytesIO()
+                #fig.set_facecolor(self.bgcolor)
+                fig.savefig(buf, pad_inches=0, bbox_inches='tight')
+                ax.remove()
+                plt.clf()
+                plt.close(fig)
+                buf.seek(0)
+                logging.debug("Loading buf (%fs)" % (time.time()-then))
+                image =  Image.open(buf)
+                logging.debug("Loaded buf (%fs) %s" % (time.time()-then, image.size))
+                del buf
+                d = ImageDraw.Draw(image)
+                d.fontmode = '1'
+                d.rectangle((0,0,w-1,h-1), outline='#808080')
+            except Exception as e:
+                logging.exception(e)
                 
         # draw legend and grid on full screen
         if self.window_size:
@@ -490,21 +503,22 @@ class Peer_Map(plugins.Plugin, Widget):
 
     def draw(self, canvas, drawer):
         if not self.image:
+            return
             w = self.xy[2]-self.xy[0]
             h = self.xy[3]-self.xy[1]
             im = Image.new('RGBA', (w,h), self.bgcolor)
             d = ImageDraw.Draw(im)
-            d.rectangle((0,0,w-1,h-1), outline='#808080')
-            d.text((w/2,h/2), "Peer Map", anchor="mm", font=self.font, fill=self.color)
-            self.image = im
+            d.rectangle((0,0,w,h), outline='#808080')
+            d.text((w/2,h/2), "Peer Map", anchor="mm", font=self.font, fill="Red")
+            self.image = im.resize(w,h)
                         
         if self.image and self.xy:
-            w = self.xy[2]-self.xy[0]
-            h = self.xy[3]-self.xy[1]
             try:
                 canvas.paste(self.image.convert(canvas.mode), self.xy)
             except Exception as e:
-                logging.error("Paste: %s, %s, (%s, %s): %s" % (self.xy, self.image.size, w, h, e))
+                w = self.xy[2]-self.xy[0]
+                h = self.xy[3]-self.xy[1]
+                logging.debug("Paste: %s, %s, (%s, %s): %s" % (self.xy, self.image.size, w, h, e))
                 self.image = self.image.resize((self.xy[2]-self.xy[0], self.xy[3]-self.xy[1]))
                 try:
                     canvas.paste(self.image.convert(canvas.mode), (self.xy[0], self.xy[1]))
@@ -526,6 +540,16 @@ class Peer_Map(plugins.Plugin, Widget):
             self.track_colors = self.options['track_colors']
         if 'peer_colors' in self.options:
             self.peer_colors = self.options['peer_colors']
+
+        self.t_dir = self.options.get("track_dir", "/etc/pwnagotchi/pwn_gpsd")
+        
+        fname = os.path.join(self.t_dir, "current.txt")
+        if os.path.isfile(fname):
+            self.me = gpsTrack("current", fname, True, True)
+            logging.info("Read my location: %s" % (self.me.lastPoint()))
+            self.redrawImage = True
+            self.trigger_redraw.set()
+
       except Exception as e:
           logging.exception(e)
 
@@ -534,14 +558,6 @@ class Peer_Map(plugins.Plugin, Widget):
         self._agent = agent
 
         now = datetime.now()
-        self.t_dir = self.options.get("track_dir", "/etc/pwnagotchi/pwn_gpsd")
-
-        fname = os.path.join(self.t_dir, "current.txt")
-        if os.path.isfile(fname):
-            self.me = gpsTrack("current", fname, True, True)
-            logging.info("Read my location: %s" % (self.me.lastPoint()))
-            self.redrawImage = True
-            self.trigger_redraw.set()
 
         tracks_fname_fmt = self.options.get("track_fname_fmt", "pwntrack_%Y%m%d.txt")
         n = 0
@@ -603,12 +619,7 @@ class Peer_Map(plugins.Plugin, Widget):
         if not self._ui:
             return
     
-        if True or self.window_size:
-            self.zoom_multiplier *= 2
-        else:
-            self.window_size = self.xy.copy()
-            border = self.options.get('border', 5)
-            self.xy = (border, border, self._ui.width()-border, self._ui.height()-border)
+        self.zoom_multiplier *= 2
         self.redrawImage = True
         self.trigger_redraw.set()
         logging.info("Zoom multiplier = %s" % self.zoom_multiplier)
@@ -621,11 +632,7 @@ class Peer_Map(plugins.Plugin, Widget):
         if not self._ui:
             return
 
-        if True and self.zoom_multiplier >0.001:
-            self.zoom_multiplier /= 2
-        elif self.window_size:
-            self.xy = self.window_size.copy()
-            self.window_size = None
+        self.zoom_multiplier /= 2
         self.redrawImage = True
         self.trigger_redraw.set()
         logging.info("Zoom multiplier = %s" % self.zoom_multiplier)        
@@ -693,7 +700,7 @@ class Peer_Map(plugins.Plugin, Widget):
         with ui._lock:
             for el in self.ui_elements:
                 try:
-                    logging.info("Removing %s" % el)
+                    logging.debug("Removing %s" % el)
                     ui.remove_element(el)
                 except Exception as e:
                     logging.error("Unable to remove %s: %s" % (el, e))
@@ -706,6 +713,12 @@ class Peer_Map(plugins.Plugin, Widget):
                     GPIO.cleanup(pin)
                 except Exception as e:
                     logging.exception("GPIO cleanup %s: %s" % (pin, e))
+        if self._worker_thread:
+            logging.debug("Waiting for drawing thread to finish")
+            try:
+                self._worker_thread.join()
+            except Exception as e:
+                logging.exception(e)
         logging.info("Unloaded")
 
     def on_ui_setup(self, ui):
@@ -730,7 +743,9 @@ class Peer_Map(plugins.Plugin, Widget):
                                )
                     self.ui_elements.append(fname)
                     base_pos[1] += 10
-            self._worker_thread = _thread.start_new_thread(self._worker, ())
+            #self._worker_thread = _thread.start_new_thread(self._worker, ())
+            self._worker_thread = threading.Thread(target=self._worker, args=())
+            self._worker_thread.start()
         except Exception as e:
             logging.exception(e)
 
@@ -845,9 +860,6 @@ class Peer_Map(plugins.Plugin, Widget):
                 else:
                     ui.set('pm_speed', "---.--")
 
-        #if self.redrawImage:
-        #    self.updateImage()
-        
     def on_handshake(self, agent, filename, access_point, client_station):
         try:
             if self.me:
@@ -887,7 +899,7 @@ class Peer_Map(plugins.Plugin, Widget):
         try:
             method = request.method
             path = request.path
-            logging.info("Webhook %s %s" % (path, repr(request.args)))
+            logging.debug("Webhook %s %s" % (path, repr(request.args)))
             if "/zoom_in" in path:
                 self.zoom_in("web")
                 self._ui.set('peer_map', time.time())
