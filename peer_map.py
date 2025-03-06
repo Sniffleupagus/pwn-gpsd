@@ -346,7 +346,7 @@ class Peer_Map(plugins.Plugin, Widget):
             dpi = mpl.rcParams["figure.dpi"]=100
             mpl.rcParams["path.simplify"] = True
             linewidth = dpi * 0.1
-            fig = plt.figure(figsize=((w)/dpi, (h)/dpi), facecolor='Blue')
+            fig = plt.figure(figsize=((w)/dpi, (h)/dpi), facecolor=self.bgcolor)
             ax = fig.add_subplot(1, 1, 1) if not ccrs else fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
 
             fig.tight_layout()
@@ -358,8 +358,6 @@ class Peer_Map(plugins.Plugin, Widget):
             plt.ylim(map_bbox[1], map_bbox[3])
             logging.debug("DPI = %s, w = %s, h = %s, gca = %s" % (dpi, w, h, fig.gca()))
             if ccrs:
-                #ax.stock_img()
-                #ax.coastlines()
                 try:
                     wlon = map_bbox[2]-map_bbox[0]
                     if wlon < 10:
@@ -368,13 +366,13 @@ class Peer_Map(plugins.Plugin, Widget):
                         fscale = '50m'
                     else:
                         fscale = '110m'
-                    #ax.coastlines()
-                    #ax.add_feature(cfeature.OCEAN.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
-                    ax.add_feature(cfeature.LAND.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
-                    ax.add_feature(cfeature.LAKES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue', alpha=0.5)
-                    ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='Blue')
-                    ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.5, edgecolor='Grey', linestyle=':', alpha=0.7)
-                    #ax.add_feature(cfeature.GSHHSFeature(), zorder=3, linewidth=.1, edgecolor='b')
+                    if self.options.get("draw_map", True):
+                        #ax.add_feature(cfeature.OCEAN.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
+                        ax.add_feature(cfeature.LAND.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
+                        ax.add_feature(cfeature.LAKES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue', alpha=0.5)
+                    ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue')
+                    ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='Grey', linestyle=':', alpha=0.7)
+                        
                     logging.debug("Finished features (%fs)" % (time.time()-then))
                 except Exception as e:
                     logging.exception(e)
@@ -689,7 +687,7 @@ class Peer_Map(plugins.Plugin, Widget):
             return
     
         if not self.window_size:
-            self.zoom_in("touch")
+            self.toggle_fs("touch")
         elif touch_data['point'][0] > 2*ui.width()/3:
             self.zoom_in("touch")
         elif touch_data['point'][0] < ui.width()/3:
