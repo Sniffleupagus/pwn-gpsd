@@ -26,6 +26,7 @@ from threading import Event
 
 from io import BytesIO
 
+from math import ceil, floor
 import os
 import glob
 from datetime import datetime,timedelta
@@ -329,19 +330,23 @@ class Peer_Map(plugins.Plugin, Widget):
 
         scale = min((w)/sw, (h)/sh) * self.zoom_multiplier    # pixels per map unit
         midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
-        if self.zoom_multiplier > 1 and self.me.bounds:
+        if self.zoom_multiplier != 1 and self.me.bounds:
             midpoint = [self.me.bounds[0], self.me.bounds[1]]
 
-        map_bbox = [midpoint[0] - ((w)/2.0)/scale, midpoint[1] - ((h)/2.0)/scale,
-                    midpoint[0] + ((w)/2.0)/scale, midpoint[1] + ((h)/2.0)/scale]
+        map_bbox = [midpoint[0] - (w/2.0)/scale, midpoint[1] - (h/2.0)/scale,
+                    midpoint[0] + (w/2.0)/scale, midpoint[1] + (h/2.0)/scale]
+        cw,ch = (map_bbox[2]-map_bbox[0])*scale,(map_bbox[3]-map_bbox[1])*scale
+        if int(cw) != w or int(ch) != h:
+            logging.error("Computed size: (%i, %i) != (%i, %i)" % (cw,ch, w, h))
         fig = None
         ax = None
         image = None
         if plt:
-            dpi = mpl.rcParams["figure.dpi"]
+            mpl.rcParams["figure.dpi"]=100
+            dpi = mpl.rcParams["figure.dpi"]=100
             mpl.rcParams["path.simplify"] = True
             linewidth = dpi * 0.1
-            fig = plt.figure(figsize=((w)/dpi, (h)/dpi), facecolor='LightBlue')
+            fig = plt.figure(figsize=((w)/dpi, (h)/dpi), facecolor='Blue')
             ax = fig.add_subplot(1, 1, 1) if not ccrs else fig.add_subplot(1, 1, 1, projection=ccrs.PlateCarree())
 
             fig.tight_layout()
@@ -415,7 +420,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 pc = self.peer_colors[i % len(self.peer_colors)]
                 if plt:
                     plt.plot(data['lon'], data['lat'], zorder=5, marker='o', markersize=2, color=pc)
-                    plt.text(data['lon'], data['lat'], data.get('name', 'xxx'), va='top', ha='left', zorder=5, color=pc)
+                    plt.text(data['lon'], data['lat'], data.get('name', 'xxx'), va='top', ha='left', zorder=5, color=pc, fontsize=8)
                 else:
                     x = (data['lon'] - midpoint[0]) * scale + w/2
                     y = (data['lat'] - midpoint[1]) * scale + h/2
@@ -458,9 +463,11 @@ class Peer_Map(plugins.Plugin, Widget):
                 plt.close(fig)
                 buf.seek(0)
                 logging.debug("Loading buf (%fs)" % (time.time()-then))
-                image =  Image.open(buf)
-                logging.debug("Loaded buf (%fs) %s" % (time.time()-then, image.size))
+                pmap =  Image.open(buf)
+                logging.debug("Loaded buf (%fs) %s" % (time.time()-then, pmap.size))
                 del buf
+                image = Image.new('RGBA', (w, h), self.bgcolor)
+                image.paste(pmap, (0,0))
                 d = ImageDraw.Draw(image)
                 d.fontmode = '1'
                 d.rectangle((0,0,w-1,h-1), outline='#808080')
@@ -518,7 +525,7 @@ class Peer_Map(plugins.Plugin, Widget):
             except Exception as e:
                 w = self.xy[2]-self.xy[0]
                 h = self.xy[3]-self.xy[1]
-                logging.debug("Paste: %s, %s, (%s, %s): %s" % (self.xy, self.image.size, w, h, e))
+                logging.error("Paste: %s, %s, want (%s, %s): %s" % (self.xy, self.image.size, w, h, e))
                 self.image = self.image.resize((self.xy[2]-self.xy[0], self.xy[3]-self.xy[1]))
                 try:
                     canvas.paste(self.image.convert(canvas.mode), (self.xy[0], self.xy[1]))
@@ -724,7 +731,7 @@ class Peer_Map(plugins.Plugin, Widget):
     def on_ui_setup(self, ui):
         self._ui = ui
         try:
-            self.xy = self.options.get("pos", [100,30,200,100])
+            self.xy = self.options.get("pos", [170,42,250,100])
             self.color = self.options.get("color", "white")
             self.bgcolor = self.options.get("bgcolor", "black")
             self.font = ImageFont.truetype(self.options.get('font', "DejaVuSansMono"),
