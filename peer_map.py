@@ -127,17 +127,25 @@ class gpsTrack:
     visible = True
     zoomToFit = False
     
-    def __init__(self, name, filename=None, visible=True, zoomToFit=False):
+    def __init__(self, name, filename=None, visible=True, zoomToFit=False, verbose=False):
         self.name = name
         self.visible = visible
         self.zoomToFit = zoomToFit
         self.gpio = None
+        self.verbose = verbose
 
         if filename:
-            self.loadFromFile(filename)
-            logging.debug("Loaded %s %s" % (len(self.lats), filename))
+            self.loadFromFile(filename, ifUpdated=False)
+            if self.verbose:
+                logging.info("Loaded %s %s" % (len(self.lats), filename))
+            else:
+                logging.debug("Loaded %s %s" % (len(self.lats), filename))
 
     def addPoint(self, tpv):
+        if not 'lat' in tpv and 'Latitude' in tpv:
+            tpv['lat'] = tpv['Latitude']
+            tpv['lon'] = tpv['Longitude']
+
         if 'lat' in tpv and 'lon' in tpv:
 
             lat = tpv.get('lat')
@@ -164,12 +172,18 @@ class gpsTrack:
             now = time.time()
             if now - self.mtime < ifOlderThan:
                 # wait at least 10 seconds between reloads
+                if self.verbose:
+                    logging.info("too new")
                 return False
+
             if filename and os.path.isfile(filename):
+                if self.verbose:
+                    logging.info("file %s exists" % (filename))
                 self.filename = filename
                 mtime = os.stat(filename).st_mtime
                 if ifUpdated == False or mtime > self.mtime:
-                    logging.debug("loading %s" % filename)
+                    if self.verbose:
+                        logging.info("loading %s" % filename)
                     self.mtime = mtime
                     lines = []
                     with open(filename) as f:
@@ -177,16 +191,17 @@ class gpsTrack:
                     tmp = gpsTrack("temp")
                     tmp.lons=[]
                     tmp.lats=[]
+
                     for l in lines:
                         try:
                             l = l.strip(",")
                             l = l.strip('\0')
                             tpv = json.loads(l)
                             tmp.addPoint(tpv)
-                                
                         except Exception as e:
                             logging.debug("- skip line: %s %s" % (os.path.basename(filename), e))
-                    logging.debug("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.lats), tmp.bounds))
+                    if self.verbose:
+                        logging.info("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.lats), tmp.bounds))
                     if len(tmp.lats):
                         self.bounds = tmp.bounds
                         self.lons = tmp.lons.copy()
@@ -194,6 +209,8 @@ class gpsTrack:
                         self.last_point = tmp.last_point
                         del tmp
                         return True
+                    else:
+                        logging.error("Empty track: %s" % filename)
                 return False
             else:
                 logging.warn("No track file: %s" % (filename))
@@ -221,6 +238,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.me = None
         self.tracks = {}
         self.peers = {}
+        self.hs_tracks = {}
         self.redrawImage = False
         self.image = None
         self.value = None
@@ -228,13 +246,14 @@ class Peer_Map(plugins.Plugin, Widget):
         self.t_dir = None
         self.font = None
         self.touch_info = {}
-        self.zoom_multiplier = 0.9
         self.gpio = None
         self.window_size = None
         self.keep_going = True
         self._worker_thread = None
         self.trigger_redraw = Event()
         self.occupado = False
+        self.potfile_mtime = 0
+        self.ap_names = []
 
         self.state = True # this makes it touchable in Touch_UI plugin
         
@@ -291,6 +310,8 @@ class Peer_Map(plugins.Plugin, Widget):
         w = self.xy[2]-self.xy[0]
         h = self.xy[3]-self.xy[1]
 
+        zoom_multiplier = self.options.get('zoom', 0.9)
+
         self.redrawImage = False
         then = time.time()
 
@@ -328,9 +349,11 @@ class Peer_Map(plugins.Plugin, Widget):
 
         logging.debug("Final w=%s, h=%s,  bounds(%fs): %s" % (w,h, time.time()-then, bounds))
 
-        scale = min((w)/sw, (h)/sh) * self.zoom_multiplier    # pixels per map unit
-        midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
-        if self.zoom_multiplier != 1 and self.me.bounds:
+        scale = min((w)/sw, (h)/sh) * zoom_multiplier    # pixels per map unit
+        if self.me and self.me.bounds:
+            midpoint = [self.me.bounds[0], self.me.bounds[1]]
+        else:
+            midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
             midpoint = [self.me.bounds[0], self.me.bounds[1]]
 
         map_bbox = [midpoint[0] - (w/2.0)/scale, midpoint[1] - (h/2.0)/scale,
@@ -341,6 +364,7 @@ class Peer_Map(plugins.Plugin, Widget):
         fig = None
         ax = None
         image = None
+        d = None
         if plt:
             mpl.rcParams["figure.dpi"]=100
             dpi = mpl.rcParams["figure.dpi"]=100
@@ -386,7 +410,8 @@ class Peer_Map(plugins.Plugin, Widget):
 
         # draw tracks
         i = 0
-        for f in sorted(self.tracks):
+        if self.options.get('show_tracks', True):
+          for f in sorted(self.tracks):
             t = self.tracks[f]
             if t.visible and boxesOverlap( map_bbox, t.bounds) and self.keep_going:
                 # visible and overlaps, so plot it
@@ -397,7 +422,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 if plt:
                     try:
                         logging.debug("Plotting (%fs) %d, %d %s %s" % (time.time()-then, len(t.lons), len(t.lats), f, color))
-                        plt.plot(t.lons, t.lats, zorder=4, marker=',', markersize=linewidth, linewidth=0, markeredgecolor='none', color=color, antialiased=False)
+                        plt.plot(t.lons, t.lats, zorder=4, marker=',', markersize=linewidth, linewidth=0, markeredgecolor='none', color=color, antialiased=False, alpha=0.3)
                     except Exception as e:
                         logging.exception("Plot: Lats %d, lons %d, err: %s" % (len(lats), len(lons), e))
                 else:
@@ -418,7 +443,10 @@ class Peer_Map(plugins.Plugin, Widget):
                 pc = self.peer_colors[i % len(self.peer_colors)]
                 if plt:
                     plt.plot(data['lon'], data['lat'], zorder=5, marker='o', markersize=2, color=pc)
-                    plt.text(data['lon'], data['lat'], data.get('name', 'xxx'), va='top', ha='left', zorder=5, color=pc, fontsize=8)
+                    name = data.get('name', "XXX")
+                    if not self.window_size:
+                        name = name[0:3]
+                    plt.text(data['lon'], data['lat'], name, va='top', ha='left', zorder=5, color=pc, fontsize=8, antialiased=False)
                 else:
                     x = (data['lon'] - midpoint[0]) * scale + w/2
                     y = (data['lat'] - midpoint[1]) * scale + h/2
@@ -426,18 +454,57 @@ class Peer_Map(plugins.Plugin, Widget):
                     tbox = self.font.getbbox(data.get('name', "XXX"))
                     xoff = int(0 if x+tbox[2] < w else (w - (x+tbox[2])))
                     yoff = int(0 if (y-tbox[3]) > 0 else tbox[3])
-                    d.text((x+xoff,h-(y+yoff)), data.get('name', "XXX"), fill=pc, font=self.font)
+                    name = data.get('name', "XXX")
+                    if not self.window_size:
+                        name = name[0:3]
+                    d.text((x+xoff,h-(y+yoff)), name, fill=pc, font=self.font)
 
                 logging.debug("Plot peer (%fs): %s, %s" % (time.time()-then, p, data))
                 i += 1
+
+        # draw handshakes
+        i = 0
+        for f in self.hs_tracks:
+          try:
+            t = self.hs_tracks[f]
+            if not t.bounds:
+                continue
+            if t.visible and boxesOverlap( map_bbox, t.bounds) and self.keep_going:
+                # visible and overlaps, so plot it
+                logging.debug("Plotting HS %s %s" % (f, t.bounds))
+                lp = t.lastPoint()
+                color = self.track_colors[i % len(self.track_colors)]
+                logging.debug("Scale: %s, %s, map box: %s" % (scale, color, map_bbox))
+                if plt:
+                    try:
+                        logging.debug("Plotting (%fs) %d, %d %s %s" % (time.time()-then, len(t.lons), len(t.lats), f, color))
+                        plt.plot(t.lons, t.lats, zorder=4, marker=',', markersize=linewidth, linewidth=1, markeredgecolor='none', color='Black', antialiased=False, alpha=0.5)
+                        lmark = '*' if f in self.ap_names else 'x'
+                        plt.plot(lp['lon'], lp['lat'], zorder=5, marker=lmark, markersize=3, color=color, alpha=1.0, antialiased=False)
+                        lcolor = 'Green' if f in self.ap_names else 'Red'
+                        lab = f[0:3] if not self.window_size else f
+                        plt.text(lp['lon'], lp['lat'], lab, va='top', ha='right', zorder=5, color=lcolor, fontsize=6, alpha=0.7, antialiased=False)
+
+                    except Exception as e:
+                        logging.exception("Plot: Lats %d, lons %d, err: %s" % (len(t.lats), len(t.lons), e))
+                else:
+                    for p in range(len(t.lons)):
+                        x = (t.lons[p] - midpoint[0]) * scale + w/2
+                        y = (t.lats[p] - midpoint[1]) * scale + h/2
+                        d.point((x, h-y), fill = color)
+                i += 1
+                logging.debug("Handshake (%fs) %d, %d %s" % (time.time()-then, len(t.lons), len(t.lats), f))
+          except Exception as he:
+              logging.info("HS %s: %s" % (f, he))
+        logging.debug("Drew handshakes (%fs) (%s %s)" % (time.time()-then, w,h))
 
         # draw me
         if self.me and self.me.bounds:
             logging.debug("Me: %s" % (self.me.bounds))
             data = self.me.lastPoint()
             if plt:
-                plt.plot(data['lon'], data['lat'], zorder=5, marker='o', markersize=2, color='red')
-                plt.text(data['lon'], data['lat'], 'me', va='top', ha='right', zorder=5, color='Red', fontsize=8)
+                plt.plot(data['lon'], data['lat'], zorder=5, marker='o', markersize=3, color='red', alpha=0.5)
+                plt.text(data['lon'], data['lat'], 'me', va='top', ha='right', zorder=5, color='Red', fontsize=8, antialiased=False)
             else:
                 # without matplotlib
                 x = (self.me.bounds[0] - midpoint[0]) * scale + w/2
@@ -493,7 +560,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     else:
                         dist_text = "width = %0.2f m, %0.5e degrees" % (dist, map_bbox[2]-map_bbox[0])
                         dist_text += "\nheight = %0.2f m, %0.5e degrees" % (dist * h / w, map_bbox[3]-map_bbox[1])
-                d.text((15,15), "%s\nzoom = %s" % (dist_text, self.zoom_multiplier), fill=self.color, font=self.font)
+                d.text((15,15), "%s\nzoom = %s" % (dist_text, zoom_multiplier), fill=self.color, font=self.font)
                 logging.debug("Window %s" % dist_text)
             except Exception as e:
                 logging.exception(e)
@@ -534,8 +601,44 @@ class Peer_Map(plugins.Plugin, Widget):
                     logging.exception("Resized error: %s" % e2)
 
 
+    def readPotfile(self, fname="/root/handshakes/wpa-sec.cracked.potfile"):
+        if os.path.isfile(fname):
+            st = os.stat(fname)
+            mtime = st.st_mtime if st else 0
+
+            if mtime == self.potfile_mtime:
+                logging.debug("Potfile unchanged.")
+            else:
+                logging.info("Reading potfile.")
+                self.potfile_mtime = mtime
+                with open(fname) as f:
+                    self.cracked = {}
+                    for line in f:
+                        (mac, othermac, ssid, info) = line.strip().split(':', 3)
+                        self.cracked[mac.lower()] = line
+                        self.cracked[ssid] = line
+
     def on_ready(self, agent):
         self._agent = agent
+        try:
+            self.readPotfile()
+            # load handshake locations
+            for fname in glob.glob("%s/*_*gps*json" % agent._config['bettercap'].get('handshakes', '/root/handshakes')):
+                with open(fname, "r") as fp:
+                    fbase = os.path.basename(fname)
+                    try:
+                        (ssid, mac) = fbase.split('_', 1)
+                        if ssid in self.cracked:
+                            t =  gpsTrack(ssid, filename=fname, visible=True, zoomToFit=False, verbose=False)
+                            if len(t.lats) > 0:
+                                self.hs_tracks[ssid] = t
+                                logging.debug("tLoaded cracked handshake %s: %s" % (fname, len(t.lats)))
+                            else:
+                                logging.debug("No track for %s: %s" % (fname, t))
+                    except Exception as e:
+                        logging.exception(e)
+        except Exception as e:
+            logging.exception(e)
 
     def on_loaded(self):
       try:
@@ -543,6 +646,30 @@ class Peer_Map(plugins.Plugin, Widget):
         self.password = self.options.get('password', None)
         if self.password:
             self.fernet = Fernet(self.generateKey())
+
+        self.gpio = self.options.get("gpio", None)
+        if self.gpio:
+            try:
+                GPIO.setmode(GPIO.BCM)
+                for action in ['zoom_in', 'zoom_out', 'toggle_fs']:
+                    if action in self.gpio:
+                        if action == 'zoom_in':
+                            cb = self.zoom_in
+                        elif action == 'zoom_out':
+                            cb = self.zoom_out
+                        elif action == 'toggle_fs':
+                            cb = self.toggle_fs
+                        else:
+                            cb = self.handle_button
+                        p = self.gpio[action]
+                        logging.info("Setting up %s -> %s" % (action, p))
+                        GPIO.setup(p, GPIO.IN, GPIO.PUD_UP)
+                        logging.info("Setting event %s -> %s" % (action, p))
+                        GPIO.add_event_detect(p, GPIO.FALLING, callback=cb,
+                                   bouncetime=100)
+                        logging.info("Set up %s on pin %d" % (action, p))
+            except Exception as gpio_e:
+                logging.exception("Loading GPIO: %s" % gpio_e)
 
         if 'track_colors' in self.options:
             self.track_colors = self.options['track_colors']
@@ -589,30 +716,6 @@ class Peer_Map(plugins.Plugin, Widget):
                 self.trigger_redraw.set()
             i += 1
 
-
-        self.gpio = self.options.get("gpio", None)
-        if self.gpio:
-            try:
-                GPIO.setmode(GPIO.BCM)
-                for action in ['zoom_in', 'zoom_out', 'toggle_fs']:
-                    if action in self.gpio:
-                        if action == 'zoom_in':
-                            cb = self.zoom_in
-                        elif action == 'zoom_out':
-                            cb = self.zoom_out
-                        elif action == 'toggle_fs':
-                            cb = self.toggle_fs
-                        else:
-                            cb = self.handle_button
-                        p = self.gpio[action]
-                        logging.info("Setting up %s -> %s" % (action, p))
-                        GPIO.setup(p, GPIO.IN, GPIO.PUD_UP)
-                        logging.info("Setting event %s -> %s" % (action, p))
-                        GPIO.add_event_detect(p, GPIO.FALLING, callback=cb,
-                                   bouncetime=100)
-                        logging.info("Set up %s on pin %d" % (action, p))
-            except Exception as gpio_e:
-                logging.exception("Loading GPIO: %s" % gpio_e)
       except Exception as e:
           logging.exception(e)
 
@@ -621,10 +724,10 @@ class Peer_Map(plugins.Plugin, Widget):
         if not self._ui:
             return
     
-        self.zoom_multiplier *= 2
+        self.options['zoom'] = self.options.get('zoom', 0.9) * 2.0
         self.redrawImage = True
         self.trigger_redraw.set()
-        logging.info("Zoom multiplier = %s" % self.zoom_multiplier)
+        logging.info("Zoom multiplier = %s" % self.options['zoom'])
         self._ui.set('peer_map', time.time())
       except Exception as e:
           logging.exception("Zoom in: %s: %s" % (channel, e))
@@ -634,10 +737,10 @@ class Peer_Map(plugins.Plugin, Widget):
         if not self._ui:
             return
 
-        self.zoom_multiplier /= 2
+        self.options['zoom'] = self.options.get('zoom', 0.9) / 2.0
         self.redrawImage = True
         self.trigger_redraw.set()
-        logging.info("Zoom multiplier = %s" % self.zoom_multiplier)        
+        logging.info("Zoom multiplier = %s" % self.options['zoom'])
         self._ui.set('peer_map', time.time())
       except Exception as e:
           logging.exception("Zoom in: %s: %s" % (channel, e))
@@ -920,11 +1023,11 @@ class Peer_Map(plugins.Plugin, Widget):
             elif "/set_zoom" in path:
                 try:
                     logging.info("Args: %s" % (repr(request.args)))
-                    zf = int(request.args.get('zf', self.zoom_multiplier))
+                    zf = int(request.args.get('zf', self.options.get('zoom')))
                     #if zf < 1:
                     #    zf = 1       
-                    if zf != self.zoom_multiplier:
-                        self.zoom_multiplier = zf
+                    if zf != self.options.get('zoom'):
+                        self.options['zoom'] = zf
                         self.redrawImage = True
                         self.trigger_redraw.set()
                         self._ui.set('peer_map', time.time())
@@ -968,12 +1071,12 @@ class Peer_Map(plugins.Plugin, Widget):
                     if 'zf' in request.args:
                         try:
                             zm = int(request.args['zf'])
-                            self.zoom_multiplier = zm
+                            self.options['zoom'] = zm
                             self.redrawImage = True
                         except Exception as e:
                             ret += "<li>Error on zoom multiplier: %s" % e
                             
-                    ret += '<li>Zoom Factor<input type=number id="zf" name="zf" step=".001" value="%f" />\n' % self.zoom_multiplier
+                    ret += '<li>Zoom Factor<input type=number id="zf" name="zf" step=".001" value="%f" />\n' % self.options.get('zoom')
 
                     for o in self.options:
                         logging.debug("option %s -> %s" % (o, self.options[o]))
@@ -998,3 +1101,10 @@ class Peer_Map(plugins.Plugin, Widget):
             logging.exception(e)
             return "<html><body>Error! %s</body></html>" % (e)
 
+
+    def on_unfiltered_ap_list(self, agent, access_points):
+        try:
+            self.ap_names = [ap['hostname'] for ap in access_points if (ap['hostname'] and ap['hostname'] != '<hidden>')]
+            logging.debug("Visible APS: %s" % (self.ap_names))
+        except Exception as e:
+            logging.exception(e)
