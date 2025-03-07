@@ -350,11 +350,11 @@ class Peer_Map(plugins.Plugin, Widget):
         logging.debug("Final w=%s, h=%s,  bounds(%fs): %s" % (w,h, time.time()-then, bounds))
 
         scale = min((w)/sw, (h)/sh) * zoom_multiplier    # pixels per map unit
-        if self.me and self.me.bounds:
+        if (zoom_multiplier >= 1) and self.me and self.me.bounds:
             midpoint = [self.me.bounds[0], self.me.bounds[1]]
         else:
             midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
-            midpoint = [self.me.bounds[0], self.me.bounds[1]]
+            logging.info("midpoint not me")
 
         map_bbox = [midpoint[0] - (w/2.0)/scale, midpoint[1] - (h/2.0)/scale,
                     midpoint[0] + (w/2.0)/scale, midpoint[1] + (h/2.0)/scale]
@@ -481,8 +481,10 @@ class Peer_Map(plugins.Plugin, Widget):
                         plt.plot(t.lons, t.lats, zorder=4, marker=',', markersize=linewidth, linewidth=1, markeredgecolor='none', color='Black', antialiased=False, alpha=0.5)
                         lmark = '*' if f in self.ap_names else 'x'
                         plt.plot(lp['lon'], lp['lat'], zorder=5, marker=lmark, markersize=3, color=color, alpha=1.0, antialiased=False)
-                        lcolor = 'Green' if f in self.ap_names else 'Red'
-                        lab = f[0:3] if not self.window_size else f
+                        lcolor = ('Blue' if f in self.cracked else 'Green') if f in self.ap_names else ('Orange' if f in self.cracked else 'Red')
+                        lab = f[0:4] # if not self.window_size else f
+                        if not f in self.cracked:
+                            lab = lab.lower()
                         plt.text(lp['lon'], lp['lat'], lab, va='top', ha='right', zorder=5, color=lcolor, fontsize=6, alpha=0.7, antialiased=False)
 
                     except Exception as e:
@@ -628,8 +630,8 @@ class Peer_Map(plugins.Plugin, Widget):
                     fbase = os.path.basename(fname)
                     try:
                         (ssid, mac) = fbase.split('_', 1)
-                        if ssid in self.cracked:
-                            t =  gpsTrack(ssid, filename=fname, visible=True, zoomToFit=False, verbose=False)
+                        if self.options.get('show_uncracked', False)  or ssid in self.cracked:
+                            t =  gpsTrack(ssid, filename=fname, visible=True, zoomToFit=True, verbose=False)
                             if len(t.lats) > 0:
                                 self.hs_tracks[ssid] = t
                                 logging.debug("tLoaded cracked handshake %s: %s" % (fname, len(t.lats)))
@@ -980,7 +982,10 @@ class Peer_Map(plugins.Plugin, Widget):
                 gps_filename = filename.replace(".pcap", ".gps.json")
                 logging.info(f"saving GPS to {gps_filename} ({tpv})")
                 with open(gps_filename, "wb+") as fp:
-                    fp.write(json.dumps(tpv).encode())
+                    out = json.dumps(tpv)
+                    if isinstance(out, str):
+                        out = out.encode()
+                    fp.write(json.dumps(out))
                     fp.write("\n".encode("utf-8"))
             else:
                 logging.warning("not saving GPS. Couldn't find location.")
