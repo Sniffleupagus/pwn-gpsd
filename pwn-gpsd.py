@@ -50,7 +50,8 @@ class PWN_GPSD_Proxy:
             self.stream = None
             self.password = password
             
-            self.connect()
+            if host:
+                self.connect()
         except Exception as e:
             self.socket = None
             self.stream = None
@@ -502,7 +503,7 @@ if __name__ == "__main__":
 
     try:
     
-        opts, args = getopt.getopt(sys.argv[1:], "SUP:s:k:p:m:d:a:q")
+        opts, args = getopt.getopt(sys.argv[1:], "SUNP:s:k:p:m:d:a:q")
     except getopt.GetoptError as err:
         logging.exception(err)
         sys.exit(2)
@@ -534,6 +535,8 @@ if __name__ == "__main__":
         if o in ("-p", "--port"):
             print(" Setting port to %s" % a)
             proxy_port = int(a)
+        elif o in ("-N", "--no-gpsd"):
+            server = None
         elif o in ("-s", "--server"):
             server = a
         elif o in ("-k", "--kount"):
@@ -555,17 +558,24 @@ if __name__ == "__main__":
         elif o in ("-q", "--quiet"):
             quiet = True
 
-    (host, sport) = server.split(":",1)
-    gpsd = PWN_GPSD_Proxy(host, int(sport), watch=True, password=sharingPassword)
-    gpsd_socket = gpsd.socket
+    if server:
+        (host, sport) = server.split(":",1)
+        gpsd = PWN_GPSD_Proxy(host, int(sport), watch=True, password=sharingPassword)
+        gpsd_socket = gpsd.socket
+    else:
+        gpsd = PWN_GPSD_Proxy(None, 0, watch=True, password=sharingPassword)
+        gpsd_socket = None
 
     # create proxy socket
     try:
         server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server_socket.bind(("", proxy_port))
         server_socket.listen(5)
-        
-        read_list = [ server_socket, gpsd_socket ]
+
+        if gpsd_socket:
+            read_list = [ server_socket, gpsd_socket ]
+        else:
+            read_list = [ server_socket ]
     except Exception as e:
         logging.exception(e)
         raise
@@ -953,7 +963,8 @@ if __name__ == "__main__":
                                   
                             else:
                                 logging.info("CMD %s: %s" % (cmd, data))
-                                queue_message_for(gpsd_socket, raw)
+                                if gpsd_socket:
+                                    queue_message_for(gpsd_socket, raw)
                     except (ConnectionResetError, ConnectionAbortedError):
                         print("Connection closed by server")
                         sys.exit(5)
