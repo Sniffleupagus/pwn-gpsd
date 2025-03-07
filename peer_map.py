@@ -337,7 +337,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     midpoint[0] + (w/2.0)/scale, midpoint[1] + (h/2.0)/scale]
         cw,ch = (map_bbox[2]-map_bbox[0])*scale,(map_bbox[3]-map_bbox[1])*scale
         if int(cw) != w or int(ch) != h:
-            logging.error("Computed size: (%i, %i) != (%i, %i)" % (cw,ch, w, h))
+            logging.debug("Computed size: (%i, %i) != (%i, %i)" % (cw,ch, w, h))
         fig = None
         ax = None
         image = None
