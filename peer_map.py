@@ -395,9 +395,9 @@ class Peer_Map(plugins.Plugin, Widget):
                     feats = self.options.get("map_features", ["LAND", "LAKES", "RIVERS", "STATES"])
                     if 'OCEAN' in feats:  ax.add_feature(cfeature.OCEAN.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
                     if 'LAND' in feats:   ax.add_feature(cfeature.LAND.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
-                    if 'LAKES' in feats:  ax.add_feature(cfeature.LAKES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue', alpha=0.7)
-                    if 'RIVERS' in feats: ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue')
-                    if 'STATES' in feats: ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='Grey', linestyle=':', alpha=0.7)
+                    if 'LAKES' in feats:  ax.add_feature(cfeature.LAKES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue')
+                    if 'RIVERS' in feats: ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='Blue', linestyle=':')
+                    if 'STATES' in feats: ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='DarkGrey', linestyle=':')
                         
                     logging.debug("Finished features (%fs)" % (time.time()-then))
                 except Exception as e:
@@ -445,10 +445,11 @@ class Peer_Map(plugins.Plugin, Widget):
                 pc = self.peer_colors[i % len(self.peer_colors)]
                 if plt:
                     plt.plot(data['lon'], data['lat'], zorder=5, marker='o', markersize=2, color=pc)
-                    name = data.get('name', "XXX")
-                    if not self.window_size:
-                        name = name[0:3]
-                    plt.text(data['lon'], data['lat'], name, va='top', ha='left', zorder=5, color=pc, fontsize=8, antialiased=False)
+                    if self.options.get('peer_names', True):
+                        name = data.get('name', "XXX")
+                        if not self.window_size:
+                            name = name[0:3]
+                        plt.text(data['lon'], data['lat'], name, va='top', ha='left', zorder=5, color=pc, fontsize=8, antialiased=False)
                 else:
                     x = (data['lon'] - midpoint[0]) * scale + w/2
                     y = (data['lat'] - midpoint[1]) * scale + h/2
@@ -466,7 +467,7 @@ class Peer_Map(plugins.Plugin, Widget):
 
         # draw handshakes
         i = 0
-        for f in self.hs_tracks:
+        for f in list(self.hs_tracks.keys()):
           try:
             t = self.hs_tracks[f]
             if not t.bounds:
@@ -476,18 +477,19 @@ class Peer_Map(plugins.Plugin, Widget):
                 logging.debug("Plotting HS %s %s" % (f, t.bounds))
                 lp = t.lastPoint()
                 color = self.track_colors[i % len(self.track_colors)]
-                logging.debug("Scale: %s, %s, map box: %s" % (scale, color, map_bbox))
                 if plt:
                     try:
-                        logging.debug("Plotting (%fs) %d, %d %s %s" % (time.time()-then, len(t.lons), len(t.lats), f, color))
-                        plt.plot(t.lons, t.lats, zorder=4, marker=',', markersize=linewidth, linewidth=1, markeredgecolor='none', color='Black', antialiased=False, alpha=0.5)
+                        logging.debug("Handshake plot (%fs) %d, %d %s %s" % (time.time()-then, len(t.lons), len(t.lats), f, color))
+                        plt.plot(t.lons, t.lats, zorder=4, marker=',', markersize=linewidth, linewidth=1, markeredgecolor='none',
+                                 color='Black', antialiased=False, alpha=0.5)
                         lmark = '*' if f in self.ap_names else 'x'
-                        plt.plot(lp['lon'], lp['lat'], zorder=5, marker=lmark, markersize=3, color=color, alpha=1.0, antialiased=False)
+                        plt.plot(lp['lon'], lp['lat'], zorder=5, marker=lmark, markersize=5, color=color, alpha=1.0, antialiased=False)
                         lcolor = ('Blue' if f in self.cracked else 'Green') if f in self.ap_names else ('Orange' if f in self.cracked else 'Red')
-                        lab = f[0:4] # if not self.window_size else f
-                        if not f in self.cracked:
-                            lab = lab.lower()
-                        plt.text(lp['lon'], lp['lat'], lab, va='top', ha='right', zorder=5, color=lcolor, fontsize=6, alpha=0.7, antialiased=False)
+                        if self.options.get('hs_names', True):
+                            lab = f[0:4] # if not self.window_size else f
+                            if not f in self.cracked:
+                                lab = lab.lower()
+                            plt.text(lp['lon'], lp['lat'], lab, va='top', ha='right', zorder=5, color=lcolor, fontsize=6, alpha=0.7, antialiased=False)
 
                     except Exception as e:
                         logging.exception("Plot: Lats %d, lons %d, err: %s" % (len(t.lats), len(t.lons), e))
@@ -507,8 +509,8 @@ class Peer_Map(plugins.Plugin, Widget):
             logging.debug("Me: %s" % (self.me.bounds))
             data = self.me.lastPoint()
             if plt:
-                plt.plot(data['lon'], data['lat'], zorder=5, marker='o', markersize=3, color='red', alpha=0.5)
-                plt.text(data['lon'], data['lat'], 'me', va='top', ha='right', zorder=5, color='Red', fontsize=8, antialiased=False)
+                plt.plot(data['lon'], data['lat'], zorder=5, marker='*', markersize=6, color='red', alpha=0.5)
+                #plt.text(data['lon'], data['lat'], 'me', va='top', ha='right', zorder=5, color='Red', fontsize=8, antialiased=False)
             else:
                 # without matplotlib
                 x = (self.me.bounds[0] - midpoint[0]) * scale + w/2
@@ -552,19 +554,19 @@ class Peer_Map(plugins.Plugin, Widget):
                 if units in ['feet', 'imperial']:
                     dist *= 3.28084 # meters to feet
                     if dist > 5280: # show miles if far
-                        dist_text = "width = %0.2f miles, %0.5e degrees" % (dist/5280.0, map_bbox[2]-map_bbox[0])
-                        dist_text += "\nheight = %0.2f miles, %0.5e degrees" % (dist * h / w / 5280.0, map_bbox[3]-map_bbox[1])
+                        dist_text = "W: %0.2f mi, %0.5e°" % (dist/5280.0, map_bbox[2]-map_bbox[0])
+                        dist_text += "\nH: %0.2f mi, %0.5e°" % (dist * h / w / 5280.0, map_bbox[3]-map_bbox[1])
                     else:
-                        dist_text="width = %0.2f feet, %0.5e degrees" % (dist, map_bbox[2]-map_bbox[0])
-                        dist_text += "\nheight = %0.2f feet, %0.5e" % (dist * h / w, map_bbox[3]-map_bbox[1])
+                        dist_text="W: %0.2f feet, %0.5e°" % (dist, map_bbox[2]-map_bbox[0])
+                        dist_text += "\nH: %0.2f feet, %0.5e°" % (dist * h / w, map_bbox[3]-map_bbox[1])
                 else:
                     if dist > 1000: # km or meters
-                        dist_text = "width = %0.2f km, %0.5e degrees" % (dist/1000.0, map_bbox[2]-map_bbox[0])
-                        dist_text += "\nheight = %0.2f km, %0.5e" % (dist * h / w / 1000.0, map_bbox[3]-map_bbox[1])
+                        dist_text = "W: %0.2f km, %0.5e°" % (dist/1000.0, map_bbox[2]-map_bbox[0])
+                        dist_text += "\nH: %0.2f km, %0.5e°" % (dist * h / w / 1000.0, map_bbox[3]-map_bbox[1])
                     else:
-                        dist_text = "width = %0.2f m, %0.5e degrees" % (dist, map_bbox[2]-map_bbox[0])
-                        dist_text += "\nheight = %0.2f m, %0.5e degrees" % (dist * h / w, map_bbox[3]-map_bbox[1])
-                d.text((15,15), "%s\nzoom = %s" % (dist_text, zoom_multiplier), fill=self.color, font=self.font)
+                        dist_text = "W: %0.2f m, %0.5e°" % (dist, map_bbox[2]-map_bbox[0])
+                        dist_text += "\nH: %0.2f m, %0.5e°'" % (dist * h / w, map_bbox[3]-map_bbox[1])
+                d.text((5,5), "%s\nZ: %s" % (dist_text, zoom_multiplier), fill=self.color, font=self.font)
                 logging.debug("Window %s" % dist_text)
             except Exception as e:
                 logging.exception(e)
@@ -1051,7 +1053,11 @@ class Peer_Map(plugins.Plugin, Widget):
                     ret += '<ul>\n'
 
                     allowed_options={"units:string":"feet|imperial|metric",
-                                     "days:int":"^[0-9]+$"}
+                                     "days:int":"^[0-9]+$",
+                                     "zoom:float":"",
+                                     "hs_names:bool":"True|False",
+                                     "peer_names:bool":"True|False",
+                                     }
                     for a in request.args:
                         if ':' in a:
                             o, t = a.split(":")
@@ -1075,15 +1081,15 @@ class Peer_Map(plugins.Plugin, Widget):
                                     logging.info("Unsupported options")
 
                     # zoom multiplier
-                    if 'zf' in request.args:
-                        try:
-                            zm = int(request.args['zf'])
-                            self.options['zoom'] = zm
-                            self.redrawImage = True
-                        except Exception as e:
-                            ret += "<li>Error on zoom multiplier: %s" % e
+                    #if 'zf' in request.args:
+                    #    try:
+                    #        zm = int(request.args['zf'])
+                    #        self.options['zoom'] = zm
+                    #        self.redrawImage = True
+                    #    except Exception as e:
+                    #        ret += "<li>Error on zoom multiplier: %s" % e
                             
-                    ret += '<li>Zoom Factor<input type=number id="zf" name="zf" step=".001" value="%f" />\n' % self.options.get('zoom')
+                    #ret += '<li>Zoom Factor<input type=number id="zf" name="zf" step=".001" value="%f" />\n' % self.options.get('zoom')
 
                     for o in self.options:
                         logging.debug("option %s -> %s" % (o, self.options[o]))
