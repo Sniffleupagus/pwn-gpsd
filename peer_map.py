@@ -255,6 +255,8 @@ class Peer_Map(plugins.Plugin, Widget):
         self.potfile_mtime = 0
         self.ap_names = []
 
+        self.event_handler = "peer_map"
+
         self.state = True # this makes it touchable in Touch_UI plugin
         
         self.track_colors=['#00ff00', '#ffff00', '#ff00ff', '#00ffff', '#40ff40', '#ff8080', '#c0c0ff', '#40c080', '#80c040', '#80c080', '#800000', '#404080'] # a bunch of colors
@@ -390,12 +392,12 @@ class Peer_Map(plugins.Plugin, Widget):
                         fscale = '50m'
                     else:
                         fscale = '110m'
-                    if self.options.get("draw_map", True):
-                        #ax.add_feature(cfeature.OCEAN.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
-                        ax.add_feature(cfeature.LAND.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
-                        ax.add_feature(cfeature.LAKES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue', alpha=0.5)
-                    ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue')
-                    ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='Grey', linestyle=':', alpha=0.7)
+                    feats = self.options.get("map_features", ["LAND", "LAKES", "RIVERS", "STATES"])
+                    if 'OCEAN' in feats:  ax.add_feature(cfeature.OCEAN.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
+                    if 'LAND' in feats:   ax.add_feature(cfeature.LAND.with_scale('110m'), zorder=1, linewidth=.1, edgecolor='b')
+                    if 'LAKES' in feats:  ax.add_feature(cfeature.LAKES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue', alpha=0.7)
+                    if 'RIVERS' in feats: ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='LightBlue')
+                    if 'STATES' in feats: ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='Grey', linestyle=':', alpha=0.7)
                         
                     logging.debug("Finished features (%fs)" % (time.time()-then))
                 except Exception as e:
@@ -786,7 +788,7 @@ class Peer_Map(plugins.Plugin, Widget):
         logging.debug("Touch press: %s, %s" % (touch_data, ui_element));
 
     def on_touch_release(self, ts, ui, ui_element, touch_data):
-        logging.info("Touch release: %s, %s" % (touch_data, ui_element));
+        logging.debug("Touch release: %s, %s" % (touch_data, ui_element));
         if ui_element != "peer_map":
             logging.warn("Touch release but not my element")
             return
@@ -985,7 +987,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     out = json.dumps(tpv)
                     if isinstance(out, str):
                         out = out.encode()
-                    fp.write(json.dumps(out))
+                    fp.write(out)
                     fp.write("\n".encode("utf-8"))
             else:
                 logging.warning("not saving GPS. Couldn't find location.")
