@@ -369,7 +369,8 @@ class Peer_Map(plugins.Plugin, Widget):
         d = None
         if plt:
             mpl.rcParams["figure.dpi"]=100
-            dpi = mpl.rcParams["figure.dpi"]=100
+            mpl.rcParams['text.antialiased'] = False
+            dpi = mpl.rcParams["figure.dpi"]
             mpl.rcParams["path.simplify"] = True
             linewidth = dpi * 0.1
             fig = plt.figure(figsize=((w)/dpi, (h)/dpi), facecolor=self.bgcolor)
@@ -449,7 +450,7 @@ class Peer_Map(plugins.Plugin, Widget):
                         name = data.get('name', "XXX")
                         if not self.window_size:
                             name = name[0:3]
-                        plt.text(data['lon'], data['lat'], name, va='top', ha='left', zorder=5, color=pc, fontsize=8, antialiased=False)
+                        plt.text(data['lon'], data['lat'], name, va='top', ha='left', zorder=5, color=pc, fontsize=8)
                 else:
                     x = (data['lon'] - midpoint[0]) * scale + w/2
                     y = (data['lat'] - midpoint[1]) * scale + h/2
@@ -489,7 +490,7 @@ class Peer_Map(plugins.Plugin, Widget):
                             lab = f[0:4] # if not self.window_size else f
                             if not f in self.cracked:
                                 lab = lab.lower()
-                            plt.text(lp['lon'], lp['lat'], lab, va='top', ha='right', zorder=5, color=lcolor, fontsize=6, alpha=0.7, antialiased=False)
+                            plt.text(lp['lon'], lp['lat'], lab, va='top', ha='right', zorder=5, color=lcolor, fontsize=6, alpha=0.7)
 
                     except Exception as e:
                         logging.exception("Plot: Lats %d, lons %d, err: %s" % (len(t.lats), len(t.lons), e))
@@ -510,7 +511,7 @@ class Peer_Map(plugins.Plugin, Widget):
             data = self.me.lastPoint()
             if plt:
                 plt.plot(data['lon'], data['lat'], zorder=5, marker='*', markersize=6, color='red', alpha=0.5)
-                #plt.text(data['lon'], data['lat'], 'me', va='top', ha='right', zorder=5, color='Red', fontsize=8, antialiased=False)
+                #plt.text(data['lon'], data['lat'], 'me', va='top', ha='right', zorder=5, color='Red', fontsize=8)
             else:
                 # without matplotlib
                 x = (self.me.bounds[0] - midpoint[0]) * scale + w/2
