@@ -357,6 +357,7 @@ class Peer_Map(plugins.Plugin, Widget):
         else:
             midpoint = [(bounds[2]+bounds[0])/2, (bounds[3]+bounds[1])/2]
             logging.info("midpoint not me")
+            midpoint = [self.me.bounds[0], self.me.bounds[1]]
 
         map_bbox = [midpoint[0] - (w/2.0)/scale, midpoint[1] - (h/2.0)/scale,
                     midpoint[0] + (w/2.0)/scale, midpoint[1] + (h/2.0)/scale]
