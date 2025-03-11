@@ -531,7 +531,6 @@ if __name__ == "__main__":
     keepGoing = -1 # default to forever
 
     for o,a in opts:
-        print("%s -> %s" % (o,a))
         if o in ("-p", "--port"):
             print(" Setting port to %s" % a)
             proxy_port = int(a)
@@ -584,7 +583,7 @@ if __name__ == "__main__":
     messages_for = {}       # message queues for sockets
 
     def queue_message_for(sock, msg):
-        logging.info("Queueing to %s: '%s'" % (sock, msg.strip()))
+        logging.debug("Queueing to %s: '%s'" % (sock, msg.strip()))
         if not sock in messages_for:
             messages_for[sock] = msg
         else:
@@ -623,7 +622,8 @@ if __name__ == "__main__":
 
     last_tpv_send = 0
 
-    last_share_check = 0
+    next_share_check = 0
+    last_share_compare = None
     
     while keepGoing:
         if keepGoing > 0:
@@ -641,14 +641,16 @@ if __name__ == "__main__":
             write_list = messages_for.keys()
             err_list = read_list.copy()
             if len(write_list):
-                logging.info("Write list (%d): %s" % (len(write_list), repr(write_list)))
+                logging.debug("Write list (%d): %s" % (len(write_list), repr(write_list)))
             if len(read_list):
                 logging.debug("Read list (%d): %s" % (len(read_list), repr(read_list)))
             readable, writable, errored = select.select(read_list, write_list, err_list, 1.0)
             logging.debug("Readable: %s" % repr(readable))
+
             # look up location from pwngrid peers
-            if useSharedLoc and time.time() - last_share_check > 10:
-                last_share_check = time.time()
+            if useSharedLoc and time.time() > next_share_check:
+                next_share_check = time.time() + 10
+                logging.warn("***\t\t\tChecking peer locs")
                 # get list of peers
                 friend_locs = []
                 try:
@@ -676,11 +678,6 @@ if __name__ == "__main__":
                     pwngridAdvertising = False
                     
                 # average locations for "my location"
-                for f in friend_locs:
-                    if 'lon' in f:
-                        logging.info("Peer %s\t%s\t%s,%s\t%s\t%s" % (f['name'], f['mode'], f['lon'], f['lat'], f['rssi'],  f.get("time", "")))
-                
-                # store in cache
                 if len(friend_locs):
                     last_tpv = json.loads(messages_archive.get('TPV', "{}"))
                     new_tpv = copy.deepcopy(friend_locs[0])
@@ -694,12 +691,14 @@ if __name__ == "__main__":
                     altweight = 0
                     friends = 0
                     for f in friend_locs:
-                        logging.info("Friend mode %s" % (f.get('mode')))
+                        logging.debug("Friend mode %s" % (f.get('mode')))
                         if f.get('mode', -2) > new_tpv.get('mode', 0):
                             new_tpv['mode'] = f.get('mode')
-                            logging.info("Picking mode from %s" % f)
+                            logging.debug("Picking mode from %s" % f)
                         rssi = f.get('rssi', -198)
                         mode = f.get('mode', -1)
+                        if f.get('time', '0000-00-00') > new_tpv.get('time', '1111-11-11'):
+                            new_tpv['time'] = f.get('time')
                         if mode > 1:
                             weight = int(100+(rssi if rssi > -200 else -198)/2)
                             new_tpv['lat'] = new_tpv.get('lat', 0) + f.get('lat') * weight
@@ -710,17 +709,17 @@ if __name__ == "__main__":
                                 altweight += weight
                             count += weight
                             friends+=1
-                            logging.info("Running totals: %s %s", new_tpv['lon'], new_tpv['lat'])
+                            logging.debug("Running totals: %s %s", new_tpv['lon'], new_tpv['lat'])
                     if friends > 0:
                         if count:
-                            logging.info("Before Div 2: %s" % (new_tpv['lat']/count))
+                            logging.debug("Before Div 2: %s" % (new_tpv['lat']/count))
                             new_tpv['lat'] /= count
                             new_tpv['lon'] /= count
                             new_tpv['rssi'] /= count
                             if altweight > 0:
                                 new_tpv['alt'] /= altweight
                             new_tpv['undivided_count'] = (friends,count)
-                            logging.info("DIVIDED: %d, %d %s" % (friends, count, new_tpv))
+                            logging.debug("DIVIDED: %d, %d %s" % (friends, count, new_tpv))
                             logging.info("->Me %s\t%s,%s\t%s\t%s" % (new_tpv['name'], new_tpv['lon'], new_tpv['lat'], new_tpv['rssi'],  new_tpv.get("time", "")))
 
                         if new_tpv.get('mode', -1) >= last_tpv.get('mode', 0):
@@ -730,19 +729,26 @@ if __name__ == "__main__":
                         if new_tpv.get('mode', -1) >= 2:
                             if not os.path.isdir("/etc/pwnagotchi/pwn_gpsd"):
                                 os.mkdir("/etc/pwnagotchi/pwn_gpsd")
+                            c_check = "%s %s %s" % (new_tpv.get('time', '00'),
+                                                    new_tpv.get('lat', 69),
+                                                    new_tpv.get('lon', 420))
                             try:
-                                with open("/etc/pwnagotchi/pwn_gpsd/current.txt", "w") as f:
-                                    logging.debug("CURRENT: %s" % new_tpv)
-                                    f.write(json.dumps(new_tpv))
-                                now = datetime.now()
-                                fname = now.strftime("/etc/pwnagotchi/pwn_gpsd/peertrack_%Y%m%d.txt")
-                                if not os.path.isdir(os.path.dirname(fname)):
-                                    os.mkdir(os.path.dirname(fname))
-                                with open(fname, "a+") as f:
-                                    f.write(json.dumps(new_tpv) + "\n")
+                                if last_share_compare != c_check: # do not write the same loc twice
+                                    last_share_compare = c_check
+                                    with open("/etc/pwnagotchi/pwn_gpsd/current.txt", "w") as f:
+                                        logging.debug("CURRENT: %s" % new_tpv)
+                                        f.write(json.dumps(new_tpv))
+                                    now = datetime.now()
+                                    fname = now.strftime("/etc/pwnagotchi/pwn_gpsd/peertrack_%Y%m%d.txt")
+                                    if not os.path.isdir(os.path.dirname(fname)):
+                                        os.mkdir(os.path.dirname(fname))
+                                    with open(fname, "a+") as f:
+                                        f.write(json.dumps(new_tpv) + "\n")
 
                             except Exception as e:
                                 logging.exception("Logging %s: %s" % (new_tpv, e))
+            else:
+                logging.debug("***\t\t\tNot checking peer locs. too soon")
 
             for s in readable:
                 if s == server_socket:
@@ -899,7 +905,7 @@ if __name__ == "__main__":
                 else:
                     # process input from client
                     try:
-                        logging.info("process from client")
+                        logging.debug("process from client")
                         raw = client_sockets[s].read()
                         if raw == "":
                             logging.exception("\n\n   Closing client %s\n\n" % (s))
@@ -909,7 +915,7 @@ if __name__ == "__main__":
                                 del messages_for[s]
                             read_list.remove(s)
                             s.close()
-                        logging.info("Got %s from %s" % (raw, s))
+                        logging.info("Got %s from %s" % (raw.strip(), s))
                         if raw.startswith("?"):
                             if '=' in raw[1:]:
                                 (cmd, data) = raw[1:].strip().split('=',1)
@@ -945,10 +951,7 @@ if __name__ == "__main__":
                                            'time': datetime.now().strftime("%Y-%m-%dT%H:%m:%sZ"),
                                            'active': 1,
                                            }
-                                  logging.info("POLL:")
-                                  logging.info("Archive contains: %s" % ",".join(messages_archive.keys()))
-                                  logging.info("Archive contains: %s" % ",".join(messages_archive.keys()))
-                                  logging.info("Archive contains: %s" % ",".join(messages_archive.keys()))
+                                  logging.debug("POLL Archive contains: %s" % ",".join(messages_archive.keys()))
                                   if "TPV" in messages_archive:
                                       jdata['tpv'] = [json.loads(messages_archive['TPV'])]
                                   if "SKY" in messages_archive:
@@ -956,7 +959,7 @@ if __name__ == "__main__":
                                   else:
                                       pass
                                   out = json.dumps(jdata)
-                                  logging.info("Sending to %s: '%s'" % (s, out))
+                                  logging.debug("Sending to %s: '%s'" % (s, out))
                                   queue_message_for(s, out)
                               except Exception as e:
                                   logging.exception(e)
