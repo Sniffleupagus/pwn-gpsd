@@ -384,7 +384,7 @@ class Peer_Map(plugins.Plugin, Widget):
             plt.xlim(map_bbox[0], map_bbox[2])
             plt.ylim(map_bbox[1], map_bbox[3])
             logging.debug("DPI = %s, w = %s, h = %s, gca = %s" % (dpi, w, h, fig.gca()))
-            if ccrs:
+            if ccrs and self.image:
                 try:
                     wlon = map_bbox[2]-map_bbox[0]
                     if wlon < 10:
@@ -413,7 +413,7 @@ class Peer_Map(plugins.Plugin, Widget):
 
         # draw tracks
         i = 0
-        if self.options.get('show_tracks', True):
+        if self.options.get('show_tracks', True) and self.image:
           for f in sorted(self.tracks):
             t = self.tracks[f]
             if t.visible and boxesOverlap( map_bbox, t.bounds) and self.keep_going:
