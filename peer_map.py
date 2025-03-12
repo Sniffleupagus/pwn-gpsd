@@ -129,6 +129,7 @@ class gpsTrack:
     
     def __init__(self, name, filename=None, visible=True, zoomToFit=False, verbose=False):
         self.name = name
+        self.filename = filename
         self.visible = visible
         self.zoomToFit = zoomToFit
         self.gpio = None
@@ -146,11 +147,36 @@ class gpsTrack:
             tpv['lat'] = tpv['Latitude']
             tpv['lon'] = tpv['Longitude']
 
+        if not 'lat' in tpv and 'location' in tpv:
+            if 'lat' in tpv['location'] and 'lng' in tpv['location']:
+                tpv['lat'] = tpv['location']['lat']
+                tpv['lon'] = tpv['location']['lng']
+                logging.info("Adding %s: %s %s" % (self.name, tpv['lat'], tpv['lon']))
+            else:
+                logging.info("UNKNOWN: %s %s" % (self.filename, tpv))
+                
         if 'lat' in tpv and 'lon' in tpv:
 
             lat = tpv.get('lat')
             lon = tpv.get('lon')
 
+            # consider dumping previous point based on slope
+            if len(self.lats) > 2:
+                p0 = (self.lons[-2], self.lats[-3])
+                p1 = (self.lons[-1], self.lats[-2])
+
+                def slope(p0, p1):
+                    return  (p1[1] - p0[1])/(p1[0]-p0[0])
+                
+                m01 = slope(p0, p1)
+                m02 = slope(p0, (lon, lat))
+
+                if abs(m01-m02) < 0.2:
+                    del(self.lons[-1])
+                    del(self.lats[-1])
+                    logging.warning("Removing point: %s %s - %s < thresh. %d remain" % (p1, m01, m02, len(self.lats)))
+                    
+            
             self.last_point = tpv
             self.lons.append(lon)
             self.lats.append(lat)
@@ -163,6 +189,7 @@ class gpsTrack:
             if lon > self.bounds[2]: self.bounds[2] = lon
             if lat > self.bounds[3]: self.bounds[3] = lat
 
+            
     def lastPoint(self):
         logging.debug("LAST POINT IS %s (%s)" % (self.last_point, len(self.lats)))
         return self.last_point
@@ -188,7 +215,7 @@ class gpsTrack:
                     lines = []
                     with open(filename) as f:
                         lines = [line.rstrip() for line in f]
-                    tmp = gpsTrack("temp")
+                    tmp = gpsTrack(filename)
                     tmp.lons=[]
                     tmp.lats=[]
 
@@ -254,6 +281,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.occupado = False
         self.potfile_mtime = 0
         self.ap_names = []
+        self.cracked = {}
 
         self.event_handler = "peer_map"
 
@@ -503,7 +531,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 i += 1
                 logging.debug("Handshake (%fs) %d, %d %s" % (time.time()-then, len(t.lons), len(t.lats), f))
           except Exception as he:
-              logging.info("HS %s: %s" % (f, he))
+              logging.error("HS %s: %s" % (f, he))
         logging.debug("Drew handshakes (%fs) (%s %s)" % (time.time()-then, w,h))
 
         # draw me
@@ -625,28 +653,36 @@ class Peer_Map(plugins.Plugin, Widget):
                         (mac, othermac, ssid, info) = line.strip().split(':', 3)
                         self.cracked[mac.lower()] = line
                         self.cracked[ssid] = line
+            logging.info("Read %d passwords" % (len(self.cracked.keys())))
 
     def on_ready(self, agent):
         self._agent = agent
         try:
+            logging.getLogger().setLevel(logging.INFO)
+            count = 0
+            nocount = 0
             self.readPotfile()
             # load handshake locations
-            for fname in glob.glob("%s/*_*gps*json" % agent._config['bettercap'].get('handshakes', '/root/handshakes')):
-                with open(fname, "r") as fp:
-                    fbase = os.path.basename(fname)
-                    try:
-                        (ssid, mac) = fbase.split('_', 1)
-                        if self.options.get('show_uncracked', False)  or ssid in self.cracked:
-                            t =  gpsTrack(ssid, filename=fname, visible=True, zoomToFit=True, verbose=False)
-                            if len(t.lats) > 0:
-                                self.hs_tracks[ssid] = t
-                                logging.debug("tLoaded cracked handshake %s: %s" % (fname, len(t.lats)))
-                            else:
-                                logging.debug("No track for %s: %s" % (fname, t))
-                    except Exception as e:
-                        logging.exception(e)
+            for fname in glob.glob("%s/*_*g[ep][os]*json" % agent._config['bettercap'].get('handshakes', '/root/handshakes')):
+                fbase = os.path.basename(fname)
+                try:
+                    (ssid, mac) = fbase.split('_', 1)
+                    if self.options.get('show_uncracked', False)  or ssid in self.cracked:
+                        t =  gpsTrack(ssid, filename=fname, visible=True, zoomToFit=True, verbose=False)
+                        if len(t.lats) > 0:
+                            self.hs_tracks[ssid] = t
+                            count += 1
+                            logging.debug("%d/%d Loaded cracked handshake %s: %s" % (count, nocount, fname, len(t.lats)))
+                        else:
+                            nocount += 1
+                            logging.debug("No track for %s: %s" % (fname, t))
+                    else:
+                        nocount += 1
+                except Exception as e:
+                    logging.exception(e)
         except Exception as e:
             logging.exception(e)
+        logging.info("Have %d handshakes" % (len(self.hs_tracks.keys())))
 
     def on_loaded(self):
       try:
