@@ -5,6 +5,8 @@ from pwnagotchi.ui.components import *
 import pwnagotchi.ui.fonts as fonts
 from pwnagotchi.mesh.peer import Peer
 
+from sympy import Point, Line
+
 try:
     import matplotlib.pyplot as plt
     import matplotlib as mpl
@@ -127,13 +129,14 @@ class gpsTrack:
     visible = True
     zoomToFit = False
     
-    def __init__(self, name, filename=None, visible=True, zoomToFit=False, verbose=False):
+    def __init__(self, name, filename=None, visible=True, zoomToFit=False, verbose=False, keep_going=True):
         self.name = name
         self.filename = filename
         self.visible = visible
         self.zoomToFit = zoomToFit
         self.gpio = None
         self.verbose = verbose
+        self.keep_going = keep_going
 
         if filename:
             self.loadFromFile(filename, ifUpdated=False)
@@ -164,18 +167,21 @@ class gpsTrack:
             if len(self.lats) > 2:
                 p0 = (self.lons[-2], self.lats[-3])
                 p1 = (self.lons[-1], self.lats[-2])
+                p2 = (lon, lat)
 
                 def slope(p0, p1):
                     return  (p1[1] - p0[1])/(p1[0]-p0[0])
                 
                 m01 = slope(p0, p1)
-                m02 = slope(p0, (lon, lat))
+                m02 = slope(p0, p2)
 
                 if abs(m01-m02) < 0.2:
                     del(self.lons[-1])
                     del(self.lats[-1])
-                    logging.warning("Removing point: %s %s - %s < thresh. %d remain" % (p1, m01, m02, len(self.lats)))
-                    
+                    #logging.warning("Removing point: %s %s - %s < thresh. %d remain" % (p1, m01, m02, len(self.lats)))
+                elif False or (abs(p2[0]-p0[0]) < 0.000025 and abs(p2[1]-p0[1] < 0.000025)):
+                    del(self.lons[-1])
+                    del(self.lats[-1])
             
             self.last_point = tpv
             self.lons.append(lon)
@@ -194,7 +200,7 @@ class gpsTrack:
         logging.debug("LAST POINT IS %s (%s)" % (self.last_point, len(self.lats)))
         return self.last_point
             
-    def loadFromFile(self, filename, ifUpdated=True, ifOlderThan=10):
+    def loadFromFile(self, filename, ifUpdated=True, ifOlderThan=0):
         try:
             now = time.time()
             if now - self.mtime < ifOlderThan:
@@ -209,26 +215,26 @@ class gpsTrack:
                 self.filename = filename
                 mtime = os.stat(filename).st_mtime
                 if ifUpdated == False or mtime > self.mtime:
-                    if self.verbose:
+                    if True or self.verbose:
                         logging.info("loading %s" % filename)
                     self.mtime = mtime
                     lines = []
                     with open(filename) as f:
-                        lines = [line.rstrip() for line in f]
-                    tmp = gpsTrack(filename)
+                        lines = [line.rstrip().strip(',') for line in f]
+                    tmp = gpsTrack(filename, keep_going=self.keep_going)
                     tmp.lons=[]
                     tmp.lats=[]
 
                     for l in lines:
                         try:
-                            l = l.strip(",")
-                            l = l.strip('\0')
+                            if not self.keep_going:
+                                break
                             tpv = json.loads(l)
                             tmp.addPoint(tpv)
                         except Exception as e:
                             logging.debug("- skip line: %s %s" % (os.path.basename(filename), e))
-                    if self.verbose:
-                        logging.info("Loaded %s %d steps within %s" % (os.path.basename(filename), len(tmp.lats), tmp.bounds))
+                    if True or self.verbose:
+                        logging.info("Loaded %s %d lines, %d steps within %s" % (os.path.basename(filename), len(lines), len(tmp.lats), tmp.bounds))
                     if len(tmp.lats):
                         self.bounds = tmp.bounds
                         self.lons = tmp.lons.copy()
@@ -246,7 +252,7 @@ class gpsTrack:
             logging.exception(e)
         return False
 
-    def reloadFile(self, ifOlderThan=0):
+    def reloadFile(self, ifOlderThan=1):
         return self.loadFromFile(self.filename, ifOlderThan=ifOlderThan)
 
 class Peer_Map(plugins.Plugin, Widget):
@@ -277,6 +283,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.window_size = None
         self.keep_going = True
         self._worker_thread = None
+        self._load_tracks_thread = None
         self.trigger_redraw = Event()
         self.occupado = False
         self.potfile_mtime = 0
@@ -389,6 +396,18 @@ class Peer_Map(plugins.Plugin, Widget):
 
         map_bbox = [midpoint[0] - (w/2.0)/scale, midpoint[1] - (h/2.0)/scale,
                     midpoint[0] + (w/2.0)/scale, midpoint[1] + (h/2.0)/scale]
+
+        if map_bbox[0] < -180:
+            map_bbox[0] = -180
+        if map_bbox[1] < -90:
+            map_bbox[1] = -90
+        if map_bbox[2] > 180:
+            map_bbox[2] = 180
+        if map_bbox[3] > 90:
+            map_bbox[3] = 90
+
+        midpoint = [(map_bbox[2]+map_bbox[0])/2, (map_bbox[3]+map_bbox[1])/2]
+
         cw,ch = (map_bbox[2]-map_bbox[0])*scale,(map_bbox[3]-map_bbox[1])*scale
         if int(cw) != w or int(ch) != h:
             logging.debug("Computed size: (%i, %i) != (%i, %i)" % (cw,ch, w, h))
@@ -429,7 +448,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     if 'RIVERS' in feats: ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='Blue', linestyle=':')
                     if 'STATES' in feats: ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='DarkGrey', linestyle=':')
                         
-                    logging.debug("Finished features (%fs)" % (time.time()-then))
+                    logging.warn("Finished features (%fs)" % (time.time()-then))
                 except Exception as e:
                     logging.exception(e)
         else:
@@ -464,7 +483,7 @@ class Peer_Map(plugins.Plugin, Widget):
                         d.point((x, h-y), fill = color)
                 i += 1
                 logging.debug("Track (%fs) %d, %d %s" % (time.time()-then, len(t.lons), len(t.lats), f))
-        logging.debug("Drew tracks (%fs) (%s %s)" % (time.time()-then, w,h))
+        logging.warn("Drew tracks (%fs) (%s %s)" % (time.time()-then, w,h))
 
         # draw peers
         i = 1
@@ -604,7 +623,7 @@ class Peer_Map(plugins.Plugin, Widget):
         self.image = image
       except Exception as e:
           logging.exception(e)
-      logging.debug("Updated (%fs) %s %s" % (time.time()-then,w,h))
+      logging.warn("Updated (%fs) %s %s" % (time.time()-then,w,h))
       self._ui.set('peer_map', time.time())
 
       self.occupado = False
@@ -721,10 +740,17 @@ class Peer_Map(plugins.Plugin, Widget):
             self.peer_colors = self.options['peer_colors']
 
         self.t_dir = self.options.get("track_dir", "/etc/pwnagotchi/pwn_gpsd")
-        
+        self._load_tracks_thread = threading.Thread(target=self.load_gps_tracks, args=())
+        self._load_tracks_thread.start()
+
+      except Exception as e:
+        logging.exception(e)
+
+    def load_gps_tracks(self):
+      try:
         fname = os.path.join(self.t_dir, "current.txt")
         if os.path.isfile(fname):
-            self.me = gpsTrack("current", fname, True, True)
+            self.me = gpsTrack("current", fname, True, True, keep_going=self.keep_going)
             logging.info("Read my location: %s" % (self.me.lastPoint()))
             self.redrawImage = True
             self.trigger_redraw.set()
@@ -735,7 +761,8 @@ class Peer_Map(plugins.Plugin, Widget):
         tracks_fname_fmt = self.options.get("track_fname_fmt", "pwntrack_%Y%m%d.txt")
         n = 0
         i = 0
-        while i < 30 and n < self.options.get("days", 3) and self.keep_going:
+        num_days = self.options.get("days", 3)
+        while i < num_days*3 and n < num_days and self.keep_going:
             fname = (now - timedelta(days=i)).strftime(tracks_fname_fmt)
             logging.debug("Looking for %s" % os.path.join(self.t_dir, fname))
             if os.path.isfile(os.path.join(self.t_dir, fname)):
@@ -762,6 +789,7 @@ class Peer_Map(plugins.Plugin, Widget):
 
       except Exception as e:
           logging.exception(e)
+      logging.info("peer_map tracks loaded")
 
     def zoom_in(self, channel):
       try:
@@ -868,6 +896,12 @@ class Peer_Map(plugins.Plugin, Widget):
                 self._worker_thread.join()
             except Exception as e:
                 logging.exception(e)
+        if self._load_tracks_thread:
+            logging.debug("Waiting for drawing thread to finish")
+            try:
+                self._load_tracks_thread.join()
+            except Exception as e:
+                logging.exception(e)
         logging.info("Unloaded")
 
     def on_ui_setup(self, ui):
@@ -950,7 +984,7 @@ class Peer_Map(plugins.Plugin, Widget):
             logging.debug("Checking %s" % f)
             t = self.tracks[f]
 
-            if t.visible and t.reloadFile(ifOlderThan=30):
+            if t.visible and t.reloadFile(ifOlderThan=60):
                 logging.debug("%s CHANGED" % f)
                 self.redrawImage = True
 
