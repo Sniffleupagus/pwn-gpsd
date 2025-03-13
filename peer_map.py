@@ -215,7 +215,7 @@ class gpsTrack:
                 self.filename = filename
                 mtime = os.stat(filename).st_mtime
                 if ifUpdated == False or mtime > self.mtime:
-                    if True or self.verbose:
+                    if self.verbose:
                         logging.info("loading %s" % filename)
                     self.mtime = mtime
                     lines = []
