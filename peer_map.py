@@ -233,7 +233,7 @@ class gpsTrack:
                             tmp.addPoint(tpv)
                         except Exception as e:
                             logging.debug("- skip line: %s %s" % (os.path.basename(filename), e))
-                    if True or self.verbose:
+                    if len(tmp.lats) > 1:
                         logging.info("Loaded %s %d lines, %d steps within %s" % (os.path.basename(filename), len(lines), len(tmp.lats), tmp.bounds))
                     if len(tmp.lats):
                         self.bounds = tmp.bounds
@@ -448,7 +448,8 @@ class Peer_Map(plugins.Plugin, Widget):
                     if 'RIVERS' in feats: ax.add_feature(cfeature.RIVERS.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='Blue', linestyle=':')
                     if 'STATES' in feats: ax.add_feature(cfeature.STATES.with_scale(fscale), zorder=3, linewidth=.1, edgecolor='DarkGrey', linestyle=':')
                         
-                    logging.warn("Finished features (%fs)" % (time.time()-then))
+                    if time.time() - then > 1:
+                        logging.warn("Finished features (%fs)" % (time.time()-then))
                 except Exception as e:
                     logging.exception(e)
         else:
@@ -483,7 +484,8 @@ class Peer_Map(plugins.Plugin, Widget):
                         d.point((x, h-y), fill = color)
                 i += 1
                 logging.debug("Track (%fs) %d, %d %s" % (time.time()-then, len(t.lons), len(t.lats), f))
-        logging.warn("Drew tracks (%fs) (%s %s)" % (time.time()-then, w,h))
+        if time.time() - then > 2:
+            logging.warn("Slow drew tracks (%fs) (%s %s)" % (time.time()-then, w,h))
 
         # draw peers
         i = 1
@@ -621,9 +623,10 @@ class Peer_Map(plugins.Plugin, Widget):
                 logging.exception(e)
 
         self.image = image
+        if time.time() - then > 10:
+            logging.warn("Updated (%fs) %s %s" % (time.time()-then,w,h))
       except Exception as e:
           logging.exception(e)
-      logging.warn("Updated (%fs) %s %s" % (time.time()-then,w,h))
       self._ui.set('peer_map', time.time())
 
       self.occupado = False
@@ -691,7 +694,8 @@ class Peer_Map(plugins.Plugin, Widget):
                         if len(t.lats) > 0:
                             self.hs_tracks[ssid] = t
                             count += 1
-                            logging.debug("%d/%d Loaded cracked handshake %s: %s" % (count, nocount, fname, len(t.lats)))
+                            if len(t.lats) > 1:
+                                logging.info("%d/%d Loaded cracked handshake %s: %s" % (count, nocount, fname, len(t.lats)))
                         else:
                             nocount += 1
                             logging.debug("No track for %s: %s" % (fname, t))
