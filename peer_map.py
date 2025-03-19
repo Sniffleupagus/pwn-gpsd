@@ -1,5 +1,7 @@
 import logging
 
+from copy import deepcopy
+
 import pwnagotchi.plugins as plugins
 from pwnagotchi.ui.components import *
 import pwnagotchi.ui.fonts as fonts
@@ -118,13 +120,22 @@ def boxesOverlap(a, b):
         logging.exception(e)
         return False
 
+class segment:
+    def __init__(self):
+        super().__init__()
+        self.times = []
+        self.lats = []
+        self.lons = []
+        self.alts = []
+
 class gpsTrack:
     name = None
     filename = None
     mtime = 0
     last_point = None   # GPSD TPV structures
-    lons = []     # array of longitudes cached from tpvs
-    lats = []     # array of latitudes taken from tpvs
+
+    segments = []
+
     bounds = None
     visible = True
     zoomToFit = False
@@ -141,11 +152,18 @@ class gpsTrack:
         if filename:
             self.loadFromFile(filename, ifUpdated=False)
             if self.verbose:
-                logging.info("Loaded %s %s" % (len(self.lats), filename))
+                logging.info("Loaded %s %s" % (len(self.segments), filename))
             else:
-                logging.debug("Loaded %s %s" % (len(self.lats), filename))
+                logging.debug("Loaded %s %s" % (len(self.segments), filename))
+
+    def parseTime(self, t_str):
+        if t_str:
+            return int(time.mktime(time.strptime(t_str, "%Y-%m-%dT%H:%M:%S.%fZ")))
+        else:
+            return time.time()
 
     def addPoint(self, tpv):
+        # handle other formats
         if not 'lat' in tpv and 'Latitude' in tpv:
             tpv['lat'] = tpv['Latitude']
             tpv['lon'] = tpv['Longitude']
@@ -157,35 +175,59 @@ class gpsTrack:
                 logging.info("Adding %s: %s %s" % (self.name, tpv['lat'], tpv['lon']))
             else:
                 logging.info("UNKNOWN: %s %s" % (self.filename, tpv))
-                
+
         if 'lat' in tpv and 'lon' in tpv:
+            seg = None
 
             lat = tpv.get('lat')
             lon = tpv.get('lon')
+            ntime = self.parseTime(tpv.get('time'))
+
+            # get last segment
+            if len(self.segments) > 0:
+                seg = self.segments[-1]
+            else:
+                seg = segment()
+                self.segments.append(seg)
+
+            # make a new segment if there is a large time gap (5 minutes)
+            if len(seg.times) > 1:
+                p = (seg.lons[-1], seg.lats[-1])
+                ltime = self.parseTime(seg.times[-1])
+                if abs(ntime - ltime) > 600:
+                    seg = segment()
+                    self.segments.append(seg)
+                elif abs(p[0] - lon) > 0.0050 or abs(p[1] - lat) > 0.0050:
+                    seg = segment()
+                    self.segments.append(seg)
 
             # consider dumping previous point based on slope
-            if len(self.lats) > 2:
-                p0 = (self.lons[-2], self.lats[-3])
-                p1 = (self.lons[-1], self.lats[-2])
+            if len(seg.lats) > 2:
+                p0 = (seg.lons[-2], seg.lats[-2])
+                p1 = (seg.lons[-1], seg.lats[-1])
                 p2 = (lon, lat)
 
                 def slope(p0, p1):
-                    return  (p1[1] - p0[1])/(p1[0]-p0[0])
+                    return  (p1[1] - p0[1])/(p1[0]-p0[0]+0.000000001)
                 
                 m01 = slope(p0, p1)
                 m02 = slope(p0, p2)
 
                 if abs(m01-m02) < 0.2:
-                    del(self.lons[-1])
-                    del(self.lats[-1])
-                    #logging.warning("Removing point: %s %s - %s < thresh. %d remain" % (p1, m01, m02, len(self.lats)))
+                    del(seg.lons[-1])
+                    del(seg.lats[-1])
+                    #logging.warning("Removing point: %s %s - %s < thresh. %d remain" % (p1, m01, m02, len(seg.lats)))
                 elif False or (abs(p2[0]-p0[0]) < 0.000025 and abs(p2[1]-p0[1] < 0.000025)):
-                    del(self.lons[-1])
-                    del(self.lats[-1])
-            
-            self.last_point = tpv
-            self.lons.append(lon)
-            self.lats.append(lat)
+                    del(seg.lons[-1])
+                    del(seg.lats[-1])
+            try:
+                self.last_point = tpv
+                seg.lons.append(lon)
+                seg.lats.append(lat)
+                seg.alts.append(tpv.get('alt', 0))
+                seg.times.append(tpv.get('time'))
+            except Exception as e:
+                logging.exception(e)
 
             if not self.bounds:
                 self.bounds = [200,200,-200,-200]
@@ -197,7 +239,7 @@ class gpsTrack:
 
             
     def lastPoint(self):
-        logging.debug("LAST POINT IS %s (%s)" % (self.last_point, len(self.lats)))
+        logging.debug("LAST POINT IS %s (%s)" % (self.last_point, len(self.segments)))
         return self.last_point
             
     def loadFromFile(self, filename, ifUpdated=True, ifOlderThan=0):
@@ -222,24 +264,25 @@ class gpsTrack:
                     with open(filename) as f:
                         lines = [line.rstrip().strip(',') for line in f]
                     tmp = gpsTrack(filename, keep_going=self.keep_going)
-                    tmp.lons=[]
-                    tmp.lats=[]
+                    tmp.segments=[]
 
                     for l in lines:
                         try:
                             if not self.keep_going:
                                 break
                             tpv = json.loads(l)
-                            tmp.addPoint(tpv)
+                            try:
+                                tmp.addPoint(tpv)
+                            except Exception as e:
+                                logging.exception(e)
                         except Exception as e:
                             logging.debug("- skip line: %s %s" % (os.path.basename(filename), e))
-                    if len(tmp.lats) > 1:
-                        logging.info("Loaded %s %d lines, %d steps within %s" % (os.path.basename(filename), len(lines), len(tmp.lats), tmp.bounds))
-                    if len(tmp.lats):
-                        self.bounds = tmp.bounds
-                        self.lons = tmp.lons.copy()
-                        self.lats = tmp.lats.copy()
-                        self.last_point = tmp.last_point
+                    if len(tmp.segments) > 0:
+                        logging.warn("Loaded %s %d lines, %d segments within %s" % (os.path.basename(filename), len(lines), len(tmp.segments), tmp.bounds))
+                    if len(tmp.segments):
+                        self.bounds = tmp.bounds.copy()
+                        self.segments = deepcopy(tmp.segments)
+                        self.last_point = tmp.last_point.copy()
                         del tmp
                         return True
                     else:
@@ -339,6 +382,7 @@ class Peer_Map(plugins.Plugin, Widget):
         logging.debug("peer_map drawing thread exiting")
 
     def updateImage(self):
+      stale_peers = []
       try:
         if self.occupado or not self._ui:
             return
@@ -366,10 +410,12 @@ class Peer_Map(plugins.Plugin, Widget):
 
         pbounds = [180,90, -180,-90]
         logging.debug("Unpacking peers: %s" % (repr(self.peers)))
+        now = time.time()
         for p,info in self.peers.items():
             try:
-                tpv = info['tpv']
-                pbounds = checkBounds(pbounds, tpv)
+                if now - info.get('tstamp', 0) < 300: # only include if within 5 minutes
+                    tpv = info['tpv']
+                    pbounds = checkBounds(pbounds, tpv)
             except Exception as e:
                 logging.exception(e)
         logging.debug("Peer bounds: %s" % (pbounds))
@@ -399,10 +445,13 @@ class Peer_Map(plugins.Plugin, Widget):
 
         if map_bbox[0] < -180:
             map_bbox[0] = -180
+            map_bbox[2] = map_bbox[0] + w/scale
         if map_bbox[1] < -90:
             map_bbox[1] = -90
+            map_bbox[3] = map_bbox[1] + h/scale
         if map_bbox[2] > 180:
             map_bbox[2] = 180
+            # need to rescale if this happens, but not right now
         if map_bbox[3] > 90:
             map_bbox[3] = 90
 
@@ -472,24 +521,32 @@ class Peer_Map(plugins.Plugin, Widget):
                 color = self.track_colors[i % len(self.track_colors)]
                 logging.debug("Scale: %s, %s, map box: %s" % (scale, color, map_bbox))
                 if plt:
-                    try:
-                        logging.debug("Plotting (%fs) %d, %d %s %s" % (time.time()-then, len(t.lons), len(t.lats), f, color))
-                        plt.plot(t.lons, t.lats, zorder=4, marker=',', markersize=linewidth, linewidth=0, markeredgecolor='none', color=color, antialiased=False, alpha=0.3)
-                    except Exception as e:
-                        logging.exception("Plot: Lats %d, lons %d, err: %s" % (len(lats), len(lons), e))
+                    for s in t.segments:
+                        try:
+                            logging.debug("Plotting (%fs) %d, %d %s %s" % (time.time()-then, len(s.lons), len(s.lats), f, color))
+                            plt.plot(s.lons, s.lats, zorder=4, marker=',', markersize=linewidth, linewidth=0.2, markeredgecolor='none', color=color, antialiased=False, alpha=0.3)
+                        except Exception as e:
+                            logging.exception("Plot: Lats %d, lons %d, err: %s" % (len(s.lats), len(s.lons), e))
                 else:
-                    for p in range(len(t.lons)):
-                        x = (t.lons[p] - midpoint[0]) * scale + w/2
-                        y = (t.lats[p] - midpoint[1]) * scale + h/2
-                        d.point((x, h-y), fill = color)
+                    for s in t.segments:
+                        for p in range(len(s.lons)):
+                            x = (s.lons[p] - midpoint[0]) * scale + w/2
+                            y = (s.lats[p] - midpoint[1]) * scale + h/2
+                            d.point((x, h-y), fill = color)
                 i += 1
-                logging.debug("Track (%fs) %d, %d %s" % (time.time()-then, len(t.lons), len(t.lats), f))
+                logging.debug("Track (%fs) %d %s" % (time.time()-then, len(t.segments), f))
         if time.time() - then > 2:
             logging.warn("Slow drew tracks (%fs) (%s %s)" % (time.time()-then, w,h))
 
         # draw peers
         i = 1
+        stale_peers = []
         for p, info in self.peers.items():
+            if now - info.get('tstamp', 0) > 300: # skip if older than 5 minutes
+                logging.warn("Skipping stale peer: %s, %s seconds old (300 lim)" % (info.get('name'), now - info.get('tstamp', 0)))
+                if now - info.get('tstamp', 0) > 600:
+                    stale_peers.append(p)
+                continue
             data = info.get('tpv', {})
                     
             if 'lat' in data and 'lon' in data:
@@ -529,28 +586,30 @@ class Peer_Map(plugins.Plugin, Widget):
                 lp = t.lastPoint()
                 color = self.track_colors[i % len(self.track_colors)]
                 if plt:
-                    try:
-                        logging.debug("Handshake plot (%fs) %d, %d %s %s" % (time.time()-then, len(t.lons), len(t.lats), f, color))
-                        plt.plot(t.lons, t.lats, zorder=4, marker=',', markersize=linewidth, linewidth=1, markeredgecolor='none',
-                                 color='Black', antialiased=False, alpha=0.5)
-                        lmark = '*' if f in self.ap_names else 'x'
-                        plt.plot(lp['lon'], lp['lat'], zorder=5, marker=lmark, markersize=5, color=color, alpha=1.0, antialiased=False)
-                        lcolor = ('Blue' if f in self.cracked else 'Green') if f in self.ap_names else ('Orange' if f in self.cracked else 'Red')
-                        if self.options.get('hs_names', True):
-                            lab = f[0:4] # if not self.window_size else f
-                            if not f in self.cracked:
-                                lab = lab.lower()
-                            plt.text(lp['lon'], lp['lat'], lab, va='top', ha='right', zorder=5, color=lcolor, fontsize=6, alpha=0.7)
+                    for s in t.segments:
+                        try:
+                            logging.debug("Handshake plot (%fs) %d, %d %s %s" % (time.time()-then, len(s.lons), len(s.lats), f, color))
+                            plt.plot(s.lons, s.lats, zorder=4, marker=',', markersize=linewidth, linewidth=1, markeredgecolor='none',
+                                     color='Black', antialiased=False, alpha=0.5)
+                            lmark = '*' if f in self.ap_names else 'x'
+                            plt.plot(lp['lon'], lp['lat'], zorder=5, marker=lmark, markersize=5, color=color, alpha=1.0, antialiased=False)
+                            lcolor = ('Blue' if f in self.cracked else 'Green') if f in self.ap_names else ('Orange' if f in self.cracked else 'Red')
+                            if self.options.get('hs_names', True):
+                                lab = f[0:4] # if not self.window_size else f
+                                if not f in self.cracked:
+                                    lab = lab.lower()
+                                plt.text(lp['lon'], lp['lat'], lab, va='top', ha='right', zorder=5, color=lcolor, fontsize=6, alpha=0.7)
 
-                    except Exception as e:
-                        logging.exception("Plot: Lats %d, lons %d, err: %s" % (len(t.lats), len(t.lons), e))
+                        except Exception as e:
+                            logging.exception("Plot: segments %d, err: %s" % (len(t.segments), e))
                 else:
-                    for p in range(len(t.lons)):
-                        x = (t.lons[p] - midpoint[0]) * scale + w/2
-                        y = (t.lats[p] - midpoint[1]) * scale + h/2
-                        d.point((x, h-y), fill = color)
+                    for s in t.segments:
+                        for p in range(len(s.lons)):
+                            x = (s.lons[p] - midpoint[0]) * scale + w/2
+                            y = (s.lats[p] - midpoint[1]) * scale + h/2
+                            d.point((x, h-y), fill = color)
                 i += 1
-                logging.debug("Handshake (%fs) %d, %d %s" % (time.time()-then, len(t.lons), len(t.lats), f))
+                logging.debug("Handshake (%fs) %d %s" % (time.time()-then, len(t.segments), f))
           except Exception as he:
               logging.error("HS %s: %s" % (f, he))
         logging.debug("Drew handshakes (%fs) (%s %s)" % (time.time()-then, w,h))
@@ -629,6 +688,11 @@ class Peer_Map(plugins.Plugin, Widget):
           logging.exception(e)
       self._ui.set('peer_map', time.time())
 
+      for p in stale_peers:
+          logging.warn("Deleting stale peer %s" % p)
+          del self.peers[p]
+
+
       self.occupado = False
 
     def draw(self, canvas, drawer):
@@ -691,11 +755,11 @@ class Peer_Map(plugins.Plugin, Widget):
                     (ssid, mac) = fbase.split('_', 1)
                     if self.options.get('show_uncracked', False)  or ssid in self.cracked:
                         t =  gpsTrack(ssid, filename=fname, visible=True, zoomToFit=True, verbose=False)
-                        if len(t.lats) > 0:
+                        if len(t.segments) > 0:
                             self.hs_tracks[ssid] = t
                             count += 1
-                            if len(t.lats) > 1:
-                                logging.info("%d/%d Loaded cracked handshake %s: %s" % (count, nocount, fname, len(t.lats)))
+                            if len(t.segments) > 1:
+                                logging.info("%d/%d Loaded cracked handshake %s: %s" % (count, nocount, fname, len(t.segments)))
                         else:
                             nocount += 1
                             logging.debug("No track for %s: %s" % (fname, t))
@@ -960,7 +1024,7 @@ class Peer_Map(plugins.Plugin, Widget):
                                     logging.debug("Saving PEER %s: %s" % (p.adv.get('name', None), data))
                                     name = p.adv.get('name', "peer")
                                     data['name'] = name
-                                    self.peers[id] = {'enc': e_msg, 'raw': raw, 'tpv': data, 'name': name }
+                                    self.peers[id] = {'enc': e_msg, 'raw': raw, 'tpv': data, 'name': name, 'tstamp':time.time() }
                                     ret = True
                             except Exception as e:
                                 logging.error("JSON.loads(%s) %s" % (raw, e))
