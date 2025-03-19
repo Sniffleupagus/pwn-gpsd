@@ -650,7 +650,7 @@ if __name__ == "__main__":
             # look up location from pwngrid peers
             if useSharedLoc and time.time() > next_share_check:
                 next_share_check = time.time() + 10
-                logging.warn("***\t\t\tChecking peer locs")
+                logging.warning("***\t\t\tChecking peer locs")
                 # get list of peers
                 friend_locs = []
                 try:
@@ -794,6 +794,7 @@ if __name__ == "__main__":
                                 last_tpv["time"] = data.get("time", "")
                                 if last_tpv == data:
                                     # same data, so skip it
+                                    logging.warning("Skipping repeat: %s" % (data))
                                     pass
                                 else:
                                     mode = data.get('mode', -1)
@@ -806,8 +807,15 @@ if __name__ == "__main__":
 
                                     propagate = False # do not pass along unless something changed
                                     if mode > 1:
+                                        if mode == 3 and 'alt' not in data and 'altMSL' not in data:
+                                            if 'alt' in last_tpv:
+                                                # last one had alt, this is mode 3 and should have alt, so
+                                                # skip it and wait for TPV with alt
+                                                logging.debug("Skipping: No altitude, but mode 3: %s" % (data))
+                                                continue
+
                                         # have some position
-                                        for k,v in {'lat':"%0.4f", 'lon':"%0.4f"}.items():
+                                        for k,v in {'lat':"%0.5f", 'lon':"%0.5f", 'alt':"%0.0f"}.items():
                                             #if not propagate and abs(data.get(k, last_tpv.get(k, 0)) - last_tpv.get(k, 0)) > v:
                                             new = v % float(data.get(k, 0))
                                             old = v % float(last_tpv.get(k,0))
