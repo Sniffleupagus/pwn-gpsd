@@ -262,11 +262,13 @@ class gpsTrack:
                     self.mtime = mtime
                     lines = []
                     with open(filename) as f:
-                        lines = [line.rstrip().strip(',') for line in f]
+                        lines = f.readlines() #[line.rstrip().strip(',') for line in f]
+                    # temporary with name as filename. not actual filename, which would be 2nd parameter
                     tmp = gpsTrack(filename, keep_going=self.keep_going)
                     tmp.segments=[]
 
-                    for l in lines:
+                    for line in lines:
+                        l = line.rstrip().strip(',')
                         try:
                             if not self.keep_going:
                                 break
@@ -524,7 +526,7 @@ class Peer_Map(plugins.Plugin, Widget):
                     for s in t.segments:
                         try:
                             logging.debug("Plotting (%fs) %d, %d %s %s" % (time.time()-then, len(s.lons), len(s.lats), f, color))
-                            plt.plot(s.lons, s.lats, zorder=4, marker=',', markersize=linewidth, linewidth=0.2, markeredgecolor='none', color=color, antialiased=False, alpha=0.3)
+                            plt.plot(s.lons, s.lats, zorder=4, marker=',', markersize=linewidth, linewidth=0.1, markeredgecolor='none', color=color, antialiased=False, alpha=0.3)
                         except Exception as e:
                             logging.exception("Plot: Lats %d, lons %d, err: %s" % (len(s.lats), len(s.lons), e))
                 else:
@@ -535,7 +537,7 @@ class Peer_Map(plugins.Plugin, Widget):
                             d.point((x, h-y), fill = color)
                 i += 1
                 logging.debug("Track (%fs) %d %s" % (time.time()-then, len(t.segments), f))
-        if time.time() - then > 2:
+        if time.time() - then > 4:
             logging.warn("Slow drew tracks (%fs) (%s %s)" % (time.time()-then, w,h))
 
         # draw peers
@@ -747,6 +749,10 @@ class Peer_Map(plugins.Plugin, Widget):
             logging.getLogger().setLevel(logging.INFO)
             count = 0
             nocount = 0
+
+            self._load_tracks_thread = threading.Thread(target=self.load_gps_tracks, args=())
+            self._load_tracks_thread.start()
+
             self.readPotfile()
             # load handshake locations
             for fname in glob.glob("%s/*_*g[ep][os]*json" % agent._config['bettercap'].get('handshakes', '/root/handshakes')):
@@ -808,8 +814,6 @@ class Peer_Map(plugins.Plugin, Widget):
             self.peer_colors = self.options['peer_colors']
 
         self.t_dir = self.options.get("track_dir", "/etc/pwnagotchi/pwn_gpsd")
-        self._load_tracks_thread = threading.Thread(target=self.load_gps_tracks, args=())
-        self._load_tracks_thread.start()
 
       except Exception as e:
         logging.exception(e)
@@ -1125,7 +1129,7 @@ class Peer_Map(plugins.Plugin, Widget):
             if 'lat' in tpv:
                 gps_filename = filename.replace(".pcap", ".gps.json")
                 logging.info(f"saving GPS to {gps_filename} ({tpv})")
-                with open(gps_filename, "wb+") as fp:
+                with open(gps_filename, "ab+") as fp:
                     out = json.dumps(tpv)
                     if isinstance(out, str):
                         out = out.encode()
