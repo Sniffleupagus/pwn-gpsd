@@ -2,10 +2,13 @@
 
 import logging
 import socket, select, time
+from socket import error as SocketError
+import errno
 from datetime import datetime
 import operator
 import os
 import sys
+import signal
 import json
 import getopt
 import random
@@ -142,7 +145,7 @@ class PWN_GPSClient:
     def read(self):
         try:
             self.raw = self.stream.readline()
-            logging.info("%s read '%s'" % (self.address, self.raw))
+            #logging.info("%s read '%s'" % (self.address, self.raw))
             try:
                 if self.raw != "":
                     self.data = json.loads(raw)
@@ -151,8 +154,10 @@ class PWN_GPSClient:
             
             return self.raw
         except Exception as e:
-            logging.exception("Read error %s: %s" % (self.address, self.raw))
+            logging.error("Read error %s: %s" % (self.address, self.raw))
             raise
+
+keepGoing = -1
 
 class PWN_GPSD(plugins.Plugin):
     __author__ = 'Sniffleupagus'
@@ -565,11 +570,24 @@ if __name__ == "__main__":
         gpsd = PWN_GPSD_Proxy(None, 0, watch=True, password=sharingPassword)
         gpsd_socket = None
 
+
     # create proxy socket
+    server_socket = None
     try:
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server_socket.bind(("", proxy_port))
-        server_socket.listen(5)
+        n_tries = 3
+        while n_tries and not server_socket:
+            try:
+                server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                server_socket.bind(("", proxy_port))
+                server_socket.listen(5)
+            except Exception as e:
+                n_tries -= 1
+                server_socket = None
+                logging.warn("%d attempts left: %s" % (n_tries, e))
+                if n_tries > 0:
+                    time.sleep(3)
+                else:
+                    raise
 
         if gpsd_socket:
             read_list = [ server_socket, gpsd_socket ]
@@ -578,6 +596,17 @@ if __name__ == "__main__":
     except Exception as e:
         logging.exception(e)
         raise
+
+    def term_handler(*unused):
+        global keepGoing
+        logging.info('Received Term.  Closing sockets and exiting')
+        try:
+            keepGoing = 0
+            logging.debug("TERM set keepGoing 0")
+
+        except Exception as e:
+            logging.exception(e)
+    signal.signal(signal.SIGTERM, term_handler)
 
     messages_archive = {}   # keep track of most recent gpsd message of each type
     messages_for = {}       # message queues for sockets
@@ -602,7 +631,7 @@ if __name__ == "__main__":
                     rest = None
                 if msg != "":
                     msg += "\n"
-                    logging.info("--> to %s: %s" % (sock, msg))
+                    logging.debug("--> to %s: %s" % (sock, msg[0:60]))
                     if sock == gpsd_socket:
                         ret = gpsd.write(msg)
                     else:
@@ -624,8 +653,18 @@ if __name__ == "__main__":
 
     next_share_check = 0
     last_share_compare = None
+
+    # read last loc from current.txt, if not too old
+    fname = "/etc/pwnagotchi/pwn_gpsd/current.txt"
+    if os.path.isfile(fname):
+        mtime = os.stat(fname).st_mtime
+        if time.time() - mtime < 60 * 60 * 24:
+            with open(fname, 'r') as f:
+                tpv = f.readlines()
+                logging.warn("Preload location %s" % (tpv))
+                messages_archive['TPV'] = tpv[-1]
     
-    while keepGoing:
+    while keepGoing != 0:
         if keepGoing > 0:
             keepGoing -= 1
 
@@ -794,7 +833,7 @@ if __name__ == "__main__":
                                 last_tpv["time"] = data.get("time", "")
                                 if last_tpv == data:
                                     # same data, so skip it
-                                    logging.warning("Skipping repeat: %s" % (data))
+                                    logging.debug("Skipping repeat: %s" % (data))
                                     pass
                                 else:
                                     mode = data.get('mode', -1)
@@ -914,23 +953,27 @@ if __name__ == "__main__":
                     # process input from client
                     try:
                         logging.debug("process from client")
-                        raw = client_sockets[s].read()
+                        try:
+                            raw = client_sockets[s].read()
+                        except (ConnectionResetError, ConnectionAbortedError):
+                            raw = ""
+
                         if raw == "":
-                            logging.exception("\n\n   Closing client %s\n\n" % (s))
+                            logging.warn("Closing client %s" % (s))
                             if s in client_sockets:
                                 del client_sockets[s]
                             if s in messages_for:
                                 del messages_for[s]
                             read_list.remove(s)
                             s.close()
-                        logging.info("Got %s from %s" % (raw.strip(), s))
-                        if raw.startswith("?"):
+                        elif raw.startswith("?"):
+                            logging.debug("Got %s from %s" % (raw.strip(), s))
                             if '=' in raw[1:]:
                                 (cmd, data) = raw[1:].strip().split('=',1)
                             else:
                                (cmd, ignore) = raw[1:].strip().split(';',1)
                                data = "{}"
-                            logging.info("Client command: %s" % cmd)
+                            logging.debug("Client command: %s" % cmd)
                             if cmd == "WATCH":
                                 try:
                                     jdata = json.loads(data.strip().strip(';'))
@@ -1016,7 +1059,7 @@ if __name__ == "__main__":
 
             for s in errored:
                 try:
-                    if s == gpsd_socket:
+                    if s == gpsd_socket and s != -1:
                         logging.info("gpsd socket error: exiting")
                         s.close()
                         sys.exit(6)
