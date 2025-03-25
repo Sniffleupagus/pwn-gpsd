@@ -6,6 +6,7 @@ import pwnagotchi.plugins as plugins
 from pwnagotchi.ui.components import *
 import pwnagotchi.ui.fonts as fonts
 from pwnagotchi.mesh.peer import Peer
+from pwnagotchi.ui.state import State
 
 from sympy import Point, Line
 
@@ -213,7 +214,7 @@ class gpsTrack:
                 m01 = slope(p0, p1)
                 m02 = slope(p0, p2)
 
-                if abs(m01-m02) < 0.2:
+                if abs(m01-m02) < 0.05:
                     del(seg.lons[-1])
                     del(seg.lats[-1])
                     #logging.warning("Removing point: %s %s - %s < thresh. %d remain" % (p1, m01, m02, len(seg.lats)))
@@ -514,7 +515,7 @@ class Peer_Map(plugins.Plugin, Widget):
         # draw tracks
         i = 0
         if self.options.get('show_tracks', True) and self.image:
-          for f in sorted(self.tracks):
+          for f in sorted(self.tracks, reverse=True):
             t = self.tracks[f]
             if t.visible and boxesOverlap( map_bbox, t.bounds) and self.keep_going:
                 # visible and overlaps, so plot it
@@ -658,7 +659,7 @@ class Peer_Map(plugins.Plugin, Widget):
                 logging.exception(e)
                 
         # draw legend and grid on full screen
-        if self.window_size:
+        if self.window_size and not self.options.get("map_on_bottom", True):
             try:
                 dist = self.haversine_distance(map_bbox[0], 0, map_bbox[2], 0)
                 units = self.options.get('units', 'metric').lower()
@@ -988,6 +989,13 @@ class Peer_Map(plugins.Plugin, Widget):
                                            self.options.get('font_size', 10))
 
             with ui._lock:
+                if self.options.get("map_on_bottom", True):
+                    # rebuild UI with peer_map on bottom
+                    old_state = ui._state
+                    new_state = State(state={'peer_map':self})
+                    for k, e in old_state.items():
+                        new_state._state[k] = e
+                    ui._state = new_state
                 ui.add_element('peer_map', self)
                 self.ui_elements.append('peer_map')
                 base_pos = self.options.get('pos', [0,55])
@@ -1149,6 +1157,8 @@ class Peer_Map(plugins.Plugin, Widget):
         else:
             self.window_size = self.xy.copy()                    
             border = self.options.get('border', 5)
+            if self.options.get('map_on_bottom', True):
+                border = 0
             self.xy = (border, border, self._ui.width()-border, self._ui.height()-border)
             logging.info("Toggle to fullscreen")
         self.redrawImage = True
