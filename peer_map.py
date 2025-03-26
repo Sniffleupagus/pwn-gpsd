@@ -283,7 +283,8 @@ class gpsTrack:
                         except Exception as e:
                             logging.debug("- skip line: %s %s" % (os.path.basename(filename), e))
                     if len(tmp.segments) > 0:
-                        logging.warn("Loaded %s %d lines, %d segments within %s" % (os.path.basename(filename), len(lines), len(tmp.segments), tmp.bounds))
+                        if self.verbose:
+                            logging.warn("Loaded %s %d lines, %d segments within %s" % (os.path.basename(filename), len(lines), len(tmp.segments), tmp.bounds))
                     if len(tmp.segments):
                         self.bounds = tmp.bounds.copy()
                         self.segments = deepcopy(tmp.segments)
@@ -1187,29 +1188,41 @@ class Peer_Map(plugins.Plugin, Widget):
         self.trigger_redraw.set()
         self._ui.set('peer_map', time.time())
 
+    def ok204_or_redirect(self, request):
+        ua = request.user_agent
+        logging.debug("UA: platform: %s, browser: %s, version: %s, language: %s\n\tstring: %s" % (ua.platform, ua.browser, ua.version, ua.language, ua.string))
+        try:
+            if ua.browser == 'safari':
+                if ua.platform == 'iphone' or 'iPhone' in ua.string:
+                    logging.debug("Redirect: %s" % ua.string)
+                    return redirect(request.referrer)
+                else:
+                    return 'OK', 204
+            else:
+                return 'OK', 204
+        except Exception as e:
+            logging.exception("UA: %s, error: %s" % (repr(ua), e))
+            return e,304
+
     def on_webhook(self, path, request):
         try:
             method = request.method
             path = request.path
             user_agent = request.user_agent
-            logging.warn("UA: %s" % (user_agent))
             logging.debug("Webhook %s %s" % (path, repr(request.args)))
             if "/zoom_in" in path:
                 self.zoom_in("web")
                 self._ui.set('peer_map', time.time())
-                return "", 204
-                return redirect(request.referrer)
+                return self.ok204_or_redirect(request)
             elif "/zoom_out" in path:
                 self.zoom_out("web")
                 self._ui.set('peer_map', time.time())
-                return "", 204
-                return redirect(request.referrer)
+                return self.ok204_or_redirect(request)
             elif "/toggle_fs" in path:
                 self.toggle_fs("web")
                 self.trigger_redraw.set()
                 self._ui.set('peer_map', time.time())
-                return "", 204
-                return redirect(request.referrer)
+                return self.ok204_or_redirect(request)
             elif "/set_zoom" in path:
                 try:
                     logging.info("Args: %s" % (repr(request.args)))
@@ -1221,7 +1234,7 @@ class Peer_Map(plugins.Plugin, Widget):
                         self.redrawImage = True
                         self.trigger_redraw.set()
                         self._ui.set('peer_map', time.time())
-                    return "", 204
+                    return self.ok204_or_redirect(request)
                 
                 except Exception as e:
                     logging.exception(e)
