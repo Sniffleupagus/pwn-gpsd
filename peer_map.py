@@ -10,6 +10,8 @@ from pwnagotchi.ui.state import State
 
 from sympy import Point, Line
 
+from flask import redirect
+
 try:
     import matplotlib.pyplot as plt
     import matplotlib as mpl
@@ -998,6 +1000,8 @@ class Peer_Map(plugins.Plugin, Widget):
                     ui._state = new_state
                 ui.add_element('peer_map', self)
                 self.ui_elements.append('peer_map')
+                self.set_click_url("/plugins/peer_map/toggle_fs")
+
                 base_pos = self.options.get('pos', [0,55])
                 for field in self.options.get('fields', ['fix', 'lon', 'lat', 'alt', 'speed']):
                     fname = "pm_%s" % field
@@ -1150,10 +1154,18 @@ class Peer_Map(plugins.Plugin, Widget):
 
 
     def toggle_fs(self, channel):
+        if not self._ui:
+            return
         if self.window_size:
             self.xy = self.window_size.copy()
             self.window_size = None
             logging.info("Toggle to windowed")
+
+            with self._ui._lock:
+                self._ui.remove_element('zin')
+                self._ui.remove_element('zout')
+            self.ui_elements.remove('zin')
+            self.ui_elements.remove('zout')
         else:
             self.window_size = self.xy.copy()                    
             border = self.options.get('border', 5)
@@ -1161,6 +1173,16 @@ class Peer_Map(plugins.Plugin, Widget):
                 border = 0
             self.xy = (border, border, self._ui.width()-border, self._ui.height()-border)
             logging.info("Toggle to fullscreen")
+            zin =  Text(color=self.color, value="+", position = (self.xy[0]+2, self.xy[1]+2, self.xy[0] + 22, self.xy[1] + 22), font=ImageFont.truetype("DejaVuSans-Bold", 20))
+            zout =  Text(color=self.color, value="-", position = (self.xy[2]-22, self.xy[1]+2, self.xy[2] - 2, self.xy[1] + 22), font=ImageFont.truetype("DejaVuSans-Bold", 20))
+            zin.set_click_url("/plugins/peer_map/zoom_in")
+            zout.set_click_url("/plugins/peer_map/zoom_out")
+            with self._ui._lock:
+                self._ui.add_element('zin', zin)
+                self._ui.add_element('zout', zout)
+            self.ui_elements.append('zin')
+            self.ui_elements.append('zout')
+
         self.redrawImage = True
         self.trigger_redraw.set()
         self._ui.set('peer_map', time.time())
@@ -1169,20 +1191,25 @@ class Peer_Map(plugins.Plugin, Widget):
         try:
             method = request.method
             path = request.path
+            user_agent = request.user_agent
+            logging.warn("UA: %s" % (user_agent))
             logging.debug("Webhook %s %s" % (path, repr(request.args)))
             if "/zoom_in" in path:
                 self.zoom_in("web")
                 self._ui.set('peer_map', time.time())
-                return "OK", 204
+                return "", 204
+                return redirect(request.referrer)
             elif "/zoom_out" in path:
                 self.zoom_out("web")
                 self._ui.set('peer_map', time.time())
-                return "OK", 204
+                return "", 204
+                return redirect(request.referrer)
             elif "/toggle_fs" in path:
                 self.toggle_fs("web")
                 self.trigger_redraw.set()
                 self._ui.set('peer_map', time.time())
-                return "OK", 204
+                return "", 204
+                return redirect(request.referrer)
             elif "/set_zoom" in path:
                 try:
                     logging.info("Args: %s" % (repr(request.args)))
@@ -1194,7 +1221,7 @@ class Peer_Map(plugins.Plugin, Widget):
                         self.redrawImage = True
                         self.trigger_redraw.set()
                         self._ui.set('peer_map', time.time())
-                    return "OK", 204
+                    return "", 204
                 
                 except Exception as e:
                     logging.exception(e)
