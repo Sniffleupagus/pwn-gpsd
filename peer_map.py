@@ -1001,7 +1001,8 @@ class Peer_Map(plugins.Plugin, Widget):
                     ui._state = new_state
                 ui.add_element('peer_map', self)
                 self.ui_elements.append('peer_map')
-                self.set_click_url("/plugins/peer_map/toggle_fs")
+                if hasattr(self, "set_click_url"):
+                    self.set_click_url("/plugins/peer_map/toggle_fs")
 
                 base_pos = self.options.get('pos', [0,55])
                 for field in self.options.get('fields', ['fix', 'lon', 'lat', 'alt', 'speed']):
@@ -1176,8 +1177,10 @@ class Peer_Map(plugins.Plugin, Widget):
             logging.info("Toggle to fullscreen")
             zin =  Text(color=self.color, value="+", position = (self.xy[0]+2, self.xy[1]+2, self.xy[0] + 22, self.xy[1] + 22), font=ImageFont.truetype("DejaVuSans-Bold", 20))
             zout =  Text(color=self.color, value="-", position = (self.xy[2]-22, self.xy[1]+2, self.xy[2] - 2, self.xy[1] + 22), font=ImageFont.truetype("DejaVuSans-Bold", 20))
-            zin.set_click_url("/plugins/peer_map/zoom_in")
-            zout.set_click_url("/plugins/peer_map/zoom_out")
+            if hasattr(zin, "set_click_url"):
+                zin.set_click_url("/plugins/peer_map/zoom_in")
+            if hasattr(zout, "set_click_url"):
+                zout.set_click_url("/plugins/peer_map/zoom_out")
             with self._ui._lock:
                 self._ui.add_element('zin', zin)
                 self._ui.add_element('zout', zout)
