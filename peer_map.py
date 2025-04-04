@@ -8,8 +8,6 @@ import pwnagotchi.ui.fonts as fonts
 from pwnagotchi.mesh.peer import Peer
 from pwnagotchi.ui.state import State
 
-from sympy import Point, Line
-
 from flask import redirect
 
 try:
