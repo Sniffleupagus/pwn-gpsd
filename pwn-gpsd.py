@@ -658,7 +658,7 @@ if __name__ == "__main__":
     fname = "/etc/pwnagotchi/pwn_gpsd/current.txt"
     if os.path.isfile(fname):
         mtime = os.stat(fname).st_mtime
-        if time.time() - mtime < 60 * 60 * 24:
+        if (time.time() - mtime) < 60 * 60 * 24:
             with open(fname, 'r') as f:
                 tpv = f.readlines()
                 logging.warn("Preload location %s" % (tpv))
@@ -960,12 +960,12 @@ if __name__ == "__main__":
 
                         if raw == "":
                             logging.warn("Closing client %s" % (s))
+                            s.close()
                             if s in client_sockets:
                                 del client_sockets[s]
                             if s in messages_for:
                                 del messages_for[s]
                             read_list.remove(s)
-                            s.close()
                         elif raw.startswith("?"):
                             logging.debug("Got %s from %s" % (raw.strip(), s))
                             if '=' in raw[1:]:
@@ -1024,18 +1024,19 @@ if __name__ == "__main__":
                         sys.exit(5)
                     except Exception as e:
                         logging.exception("Closing client %s: %s" % (s,e))
+                        s.close()
                         if s in client_sockets:
                             del client_sockets[s]
                         if s in messages_for:
                             del messages_for[s]
                         read_list.remove(s)
-                        s.close()
                         
             for s in writable:
                 try:
                     ret = send_messages_for(s)
                     if ret < 0:
                         logging.info("\n\n\tClosing client %s\n\n" % (s))                        
+                        s.close()
                         if s == gpsd_socket:
                             raise
                         if s in client_sockets:
@@ -1044,10 +1045,10 @@ if __name__ == "__main__":
                             del messages_for[s]
                         if s in read_list:
                             read_list.remove(s)
-                        s.close()
                                 
                 except Exception as e:
                     logging.exception("Writing %s: %s" % (s, e))
+                    s.close()
                     if s == gpsd_socket:
                         raise
                     if s in client_sockets:
@@ -1055,7 +1056,6 @@ if __name__ == "__main__":
                     if s in messages_for:
                         del messages_for[s]
                     read_list.remove(s)
-                    s.close()
 
             for s in errored:
                 try:
@@ -1071,6 +1071,8 @@ if __name__ == "__main__":
             sys.exit(8)
         except Exception as e:
             logging.exception(e)
+            if 'oo many open files' in e:
+                sys.exit(24)
 
     logging.info("Exiting")
     for s in read_list:
